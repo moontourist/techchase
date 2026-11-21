@@ -89,8 +89,20 @@ try {
   await shot('picker');
   await js(`[...document.querySelectorAll('#jobs button')].find(b => b.querySelector('b').textContent === 'Jump' && /X/.test(b.textContent)).click()`);
   check(await until(`document.querySelector('#picker').hidden && document.querySelector('#pad [data-name=ZR]').classList.contains('changed')`), 'assign closes the picker and marks ZR changed');
-  check(await js(`[...document.querySelectorAll('#rows li')].some(li => /ZR\\s*Jump\\s*changed/.test(li.textContent))`), 'list shows ZR -> Jump (changed)');
-  check(await js(`/ZR now does Jump/.test(document.querySelector('#toast').textContent)`), 'toast confirms');
+  check(await js(`[...document.querySelectorAll('#rows li')].some(li => /ZR\\s*Jump\\s*unsaved/.test(li.textContent))`), 'list shows ZR -> Jump (unsaved)');
+  check(await js(`/ZR now does Jump.*Not saved yet/.test(document.querySelector('#toast').textContent)`), 'toast says it is not saved yet');
+  check(await js(`!document.querySelector('#saveBar').hidden && /1 unsaved change\\./.test(document.querySelector('#saveBarText').textContent)`), 'save bar shows 1 unsaved change');
+  check(await js(`document.querySelector('#pad [data-name=ZR]').classList.contains('unsaved')`), 'ZR drawn as unsaved');
+  await shot('controls-unsaved');
+  await js(`document.querySelector('#discardBtn').click()`);
+  check(await until(`document.querySelector('#saveBar').hidden && [...document.querySelectorAll('#rows li')].some(li => /ZR\\s*Grab/.test(li.textContent))`), 'discard puts ZR back to Grab and hides the bar');
+  await js(`document.querySelector('#pad [data-name=ZR]').dispatchEvent(new MouseEvent('click', {bubbles: true}))`);
+  await until(`!document.querySelector('#picker').hidden`);
+  await js(`[...document.querySelectorAll('#jobs button')].find(b => b.querySelector('b').textContent === 'Jump' && /X/.test(b.textContent)).click()`);
+  await until(`!document.querySelector('#saveBar').hidden`);
+  await js(`document.querySelector('#saveBtn').click()`);
+  check(await until(`document.querySelector('#saveBar').hidden && [...document.querySelectorAll('#rows li')].some(li => /ZR\\s*Jump\\s*changed/.test(li.textContent))`), 'save hides the bar and ZR stays on Jump (changed)');
+  check(await js(`/Saved to the controller/.test(document.querySelector('#toast').textContent)`), 'toast confirms the save');
   await shot('controls-changed');
   if (shots) {
     await until(`!document.querySelector('#toast').classList.contains('show')`, 8000);
@@ -110,6 +122,7 @@ try {
   check(await until(`[...document.querySelectorAll('#profiles li')].find(li => /^Default/.test(li.textContent)).querySelector('.active').hidden === false`), 'loading Default resets the layout');
   await js(`[...document.querySelectorAll('#profiles li')].find(li => /Wolf/.test(li.textContent)).querySelector('.apply').click()`);
   check(await until(`[...document.querySelectorAll('#profiles li')].find(li => /Wolf/.test(li.textContent)).querySelector('.active').hidden === false`), 'loading the Wolf profile brings ZR -> Jump back');
+  check(await js(`document.querySelector('#saveBar').hidden`), 'back on the saved layout, so nothing to save');
   await shot('profiles');
 
   await js(`window.confirm = () => true; document.querySelector('[data-tab=controls]').click(); document.querySelector('#resetAllBtn').click()`);
@@ -122,6 +135,9 @@ try {
 
   await js(`document.querySelector('[data-tab=device]').click()`);
   check(await js(`document.querySelector('.modes button.current')?.dataset.mode === 'sinput'`), 'device tab marks the current USB mode');
+  check(await js(`/unsaved change/.test(document.querySelector('#devSaved').textContent)`), 'device tab counts the unsaved reset');
+  await js(`document.querySelector('#saveBtn').click()`);
+  check(await until(`document.querySelector('#devSaved').textContent === 'saved on the controller'`), 'device tab says saved after saving');
 
   const errs = events.filter((e) => e.method === 'Runtime.exceptionThrown' || (e.method === 'Runtime.consoleAPICalled' && e.params.type === 'error'));
   check(errs.length === 0, `no console errors${errs.length ? `: ${JSON.stringify(errs[0].params).slice(0, 300)}` : ''}`);

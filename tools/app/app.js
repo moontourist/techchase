@@ -1,5 +1,6 @@
 import {
   GcuDevice, GC_CODES, SW_CODES, FORMATS, MODE_IDS, LATCH_MODES, LIVE, codeName, remappable, jobs, layoutOf, applyLayout,
+  canHoldChanges,
 } from './gcu-protocol.js';
 import { makeDemoDevice } from './demo.js';
 import { createLive } from './live.js';
@@ -35,6 +36,8 @@ const state = {
   busy: false,
   live: null,
   unsubLive: null,
+  savedJobs: null,
+  unsaved: false,
 };
 const liveView = createLive({ root: $('#tab-live'), entries: () => state.entries });
 
@@ -81,7 +84,10 @@ async function attach(dev) {
   liveView.reset();
   state.unsubLive = dev.onLive((rep) => liveView.push(rep));
   await dev.setLiveMode(LIVE.TECHCHASE);
+  state.unsaved = !!state.info.unsaved;
+  state.savedJobs = null;
   await refreshMap();
+  if (!state.unsaved) markSaved();
   renderConnection();
   renderDevice();
   showTab(currentTab());
@@ -121,6 +127,9 @@ function detach(msg) {
   state.dev = null;
   state.entries = [];
   state.selected = null;
+  state.unsaved = false;
+  state.savedJobs = null;
+  renderSaveBar();
   renderConnection();
   showTab(currentTab());
   if (msg) toast(msg);
@@ -152,6 +161,7 @@ function renderConnection() {
 
 $('#connectBtn').addEventListener('click', async () => {
   if (state.dev) {
+    if (hasUnsaved() && !confirm('You have unsaved changes. The controller keeps them until it’s unplugged, then goes back to its saved layout. Disconnect anyway?')) return;
     const d = state.dev;
     detach();
     await d.close();
@@ -178,6 +188,70 @@ async function refreshMap() {
 
 function entryByCode(code) { return state.entries.find((e) => e.code === code); }
 
+const holdsChanges = () => canHoldChanges(state.info);
+const isUnsaved = (e) => !!state.savedJobs && state.savedJobs.get(e.code) !== e.gcCur;
+
+function markSaved() {
+  state.savedJobs = new Map(state.entries.map((e) => [e.code, e.gcCur]));
+  state.unsaved = false;
+  renderSaveBar();
+}
+
+function unsavedCount() {
+  return state.savedJobs ? remappable(state.entries).filter(isUnsaved).length : null;
+}
+
+function hasUnsaved() {
+  if (!state.dev || !holdsChanges() || !state.unsaved) return false;
+  const n = unsavedCount();
+  return n === null || n > 0;
+}
+
+function renderSavedState() {
+  const n = unsavedCount();
+  let text = 'saved on the controller';
+  if (!holdsChanges()) text = 'saved with every change (older techchase firmware)';
+  else if (hasUnsaved()) text = n === null ? 'unsaved changes' : `${n} unsaved change${n === 1 ? '' : 's'}`;
+  $('#devSaved').textContent = text;
+}
+
+function renderSaveBar() {
+  $('#saveBar').hidden = !hasUnsaved();
+  const n = unsavedCount();
+  const what = n === null ? 'This controller has unsaved changes.' : `${n} unsaved change${n === 1 ? '' : 's'}.`;
+  $('#saveBarText').textContent = `${what} They work now: try them on the Live tab, then save.`;
+  if (state.dev) renderSavedState();
+}
+
+async function keepChanges() {
+  await guard(async () => {
+    await state.dev.save();
+    markSaved();
+    renderControls();
+    if (currentTab() === 'profiles') renderProfiles();
+    toast('Saved to the controller.', 'ok');
+  }, 'Saving failed');
+}
+
+async function dropChanges() {
+  await guard(async () => {
+    await state.dev.revert();
+    await refreshMap();
+    markSaved();
+    renderControls();
+    if (currentTab() === 'profiles') renderProfiles();
+    toast('Changes discarded. The controller is back to its saved layout.', 'ok');
+  }, 'Discarding failed');
+}
+
+$('#saveBtn').addEventListener('click', keepChanges);
+$('#discardBtn').addEventListener('click', dropChanges);
+window.addEventListener('beforeunload', (ev) => {
+  if (!hasUnsaved()) return;
+  ev.preventDefault();
+  ev.returnValue = '';
+});
+
 function renderControls() {
   const editable = new Map(remappable(state.entries).map((e) => [e.name, e]));
   const byName = new Map(state.entries.map((e) => [e.name, e]));
@@ -189,6 +263,7 @@ function renderControls() {
     g.classList.toggle('editable', !!e);
     g.classList.toggle('fixed', !e);
     g.classList.toggle('changed', !!e && e.gcCur !== e.gcDef);
+    g.classList.toggle('unsaved', !!e && isUnsaved(e));
     g.classList.toggle('selected', !!e && e.code === state.selected);
     g.setAttribute('tabindex', e ? '0' : '-1');
     g.setAttribute('role', e ? 'button' : 'img');
@@ -217,7 +292,10 @@ function renderControls() {
     const li = document.createElement('li');
     const b = document.createElement('button');
     const changed = e.gcCur !== e.gcDef;
-    b.innerHTML = `<span class="name"></span><span class="job"></span>${changed ? '<span class="tag">changed</span>' : '<span></span>'}`;
+    let tag = '<span></span>';
+    if (isUnsaved(e)) tag = '<span class="tag unsaved">unsaved</span>';
+    else if (changed) tag = '<span class="tag">changed</span>';
+    b.innerHTML = `<span class="name"></span><span class="job"></span>${tag}`;
     b.querySelector('.name').textContent = e.name;
     b.querySelector('.job').textContent = jobLabel(e.gcCur);
     b.addEventListener('click', () => select(e.code));
@@ -227,6 +305,7 @@ function renderControls() {
   $('#resetAllBtn').disabled = !layoutOf(state.entries).length;
 
   renderPicker();
+  renderSaveBar();
 }
 
 function select(code) {
@@ -262,10 +341,13 @@ function renderPicker() {
 
 async function assign(e, job) {
   await guard(async () => {
-    const ok = await state.dev.assign(e.code, job.target);
+    const save = !holdsChanges();
+    const ok = await state.dev.assign(e.code, job.target, { save });
     if (!ok) throw new Error('the controller refused');
+    if (!save) state.unsaved = true;
     await refreshMap();
-    toast(job.target === e.code ? `${e.name} is back to its default.` : `${e.name} now does ${jobLabel(job.gc, { both: true })}. Saved.`, 'ok');
+    const done = job.target === e.code ? `${e.name} is back to its default.` : `${e.name} now does ${jobLabel(job.gc, { both: true })}.`;
+    toast(`${done} ${save ? 'Saved.' : 'Not saved yet.'}`, 'ok');
     state.selected = null;
     renderControls();
   }, 'Remap failed');
@@ -283,9 +365,11 @@ $('#pickerBack').addEventListener('click', () => select(null));
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && state.selected != null) select(null); });
 $('#resetAllBtn').addEventListener('click', () => guard(async () => {
   if (!confirm('Put every button back to its default job?')) return;
-  await state.dev.resetAll();
+  const save = !holdsChanges();
+  await state.dev.resetAll({ save });
+  if (!save) state.unsaved = true;
   await refreshMap();
-  toast('Every button is back to default. Saved.', 'ok');
+  toast(`Every button is back to default. ${save ? 'Saved.' : 'Not saved yet.'}`, 'ok');
 }, 'Reset failed'));
 
 for (const b of $$('#labelSeg button')) {
@@ -349,10 +433,12 @@ async function loadProfile(p) {
       if (!byName.has(s) || !byName.has(t)) throw new Error(`this controller has no “${byName.has(s) ? t : s}” button`);
       pairs.push([byName.get(s), byName.get(t)]);
     }
-    await applyLayout(state.dev, pairs);
+    const save = !holdsChanges();
+    await applyLayout(state.dev, pairs, { save });
+    if (!save) state.unsaved = true;
     await refreshMap();
     renderProfiles();
-    toast(`Loaded “${p.name}”. Saved on the controller.`, 'ok');
+    toast(`Loaded “${p.name}”. ${save ? 'Saved on the controller.' : 'Not saved yet.'}`, 'ok');
   }, 'Loading the profile failed');
 }
 
@@ -502,6 +588,7 @@ function renderDevice() {
   $('#devMode').textContent = FORMATS[state.info?.reportFormat] ?? '--';
   $('#devTechchase').textContent = state.info?.techchase ? `yes (protocol ${state.info.proto}), late-latch ${state.info.latchOn ? 'on' : 'off'}` : 'no, official firmware';
   $('#latchToggle').checked = !!state.info?.latchOn;
+  renderSavedState();
   for (const b of $$('.modes button')) b.classList.toggle('current', MODE_IDS[b.dataset.mode] === state.info?.reportFormat);
 }
 
@@ -509,6 +596,7 @@ for (const b of $$('.modes button')) {
   b.addEventListener('click', () => guard(async () => {
     const id = MODE_IDS[b.dataset.mode];
     if (id === state.info?.reportFormat) return;
+    if (hasUnsaved() && !state.dev.demo && !confirm('Switching USB mode restarts the controller, which drops unsaved changes. Switch anyway?')) return;
     const ok = await state.dev.setUsbMode(id);
     if (!ok) throw new Error('the controller refused (is it on USB?)');
     if (state.dev.demo) {

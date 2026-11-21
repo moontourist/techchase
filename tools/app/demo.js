@@ -66,6 +66,8 @@ class DemoDevice {
     this.liveFns = new Set();
     this.liveTimer = null;
     this.seq = 0;
+    this.saved = this.entries.map((e) => ({ ...e }));
+    this.unsaved = false;
   }
 
   onLive(fn) {
@@ -88,7 +90,9 @@ class DemoDevice {
   async open() {}
   async close() {}
   async deviceInfo() { return { ...this.fixture.device }; }
-  async info() { return { techchase: true, proto: 1, latchOn: this.latchOn, latchMode: this.latchOn ? 2 : 1, reportFormat: this.reportFormat, quickRemap: false }; }
+  async info() {
+    return { techchase: true, proto: 2, latchOn: this.latchOn, latchMode: this.latchOn ? 2 : 1, reportFormat: this.reportFormat, quickRemap: false, unsaved: this.unsaved };
+  }
   async resetStats() { this.t0 = performance.now(); }
   async setLatch(on) { this.latchOn = on; this.t0 = performance.now(); }
 
@@ -111,18 +115,32 @@ class DemoDevice {
     return this.entries.map((e) => ({ ...e }));
   }
 
-  async assign(src, target) {
+  _keep(save) {
+    if (save) this.saved = this.entries.map((e) => ({ ...e }));
+    this.unsaved = !save;
+  }
+
+  async assign(src, target, { save = true } = {}) {
     const ok = remappable(this.entries);
     const s = ok.find((e) => e.code === src);
     const t = ok.find((e) => e.code === target);
     if (!s || !t) return false;
     s.gcCur = t.gcDef;
     s.swCur = t.swDef;
+    this._keep(save);
     return true;
   }
 
-  async resetAll() {
+  async resetAll({ save = true } = {}) {
     for (const e of this.entries) { e.gcCur = e.gcDef; e.swCur = e.swDef; }
+    this._keep(save);
+  }
+
+  async save() { this._keep(true); }
+
+  async revert() {
+    this.entries = this.saved.map((e) => ({ ...e }));
+    this.unsaved = false;
   }
 
   async setUsbMode(id) { this.reportFormat = id; return true; }

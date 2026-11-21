@@ -46,7 +46,7 @@ real comparison):
 ## Name, repo and rules
 * **Name and mark:** techchase, drawn as `[tc]`, the way thunk is `[*]` and seethe is `[s]`.
 * **Look:** the same family as thunk, seethe, wave and tascii (monospace, square boxes, bracketed
-  choices), in Ghostty's **Nord** palette (14e; Dracula until then). JetBrains Mono.
+  choices), in Ghostty's **Nord** palette (14f; Dracula until then). JetBrains Mono.
 * **Repo:** public, README in the thunk/seethe/wave format (banner, what it does, install,
   controls, how it's built, develop, roadmap, credits).
 * **Code rules:** the `scadoshi-rust` rules (from scadoshi's zwipe, as copied into wave, thunk and
@@ -365,7 +365,7 @@ Phase 7; nothing here changes how the controller behaves.
 * [x] **12b Names.** Every "Tourney" name this project added is now techchase: the protocol ID
   (`WEBUSB_ID_TECHCHASE`, still `0xC0`), the `TC_CMD_*` commands, the app, the tools. The protocol
   bytes didn't change, so the firmware on the controller needs no reflash for this.
-* [x] **12c Theme.** Dracula, see Phase 6 status. Moving to Nord in 14e.
+* [x] **12c Theme.** Dracula, see Phase 6 status. Moving to Nord in 14f.
 * [ ] **12d Code audit.** Hold every file this project wrote to `CONTRIBUTING.md`: unexplained
   casts, unchecked buffer indexes in the WebUSB handler, Python errors that print a traceback to a
   player. Comments are done: on 2026-11-21 every comment this project wrote was removed (HHL's own
@@ -405,7 +405,7 @@ Steps:
 * [ ] **13b Read the Phob.** Poll it through the GameCube adapter (Lossless or official, WinUSB,
   RAW_IO, like `tools/slippi_poll_ab.py`) from the desktop app. Dolphin must be closed while it
   runs.
-* [ ] **13c Guided setup.** Built as 14d, inside the live view.
+* [ ] **13c Guided setup.** Built as 14e, inside the live view.
   * Live stick and trigger view with the Melee notches overlaid.
   * Step-by-step calibration that prompts each combo.
   * Snapback, smoothing and trigger settings, with each value decoded from the reports.
@@ -447,11 +447,12 @@ Why not C#: no maintained USB library (we'd write Windows bindings by hand), a s
 for Mac, a third app for phones, and the `scadoshi-rust` rules would only be approximated.
 
 ### First: the owner's hand test (2026-11-21)
-These four come before the Rust work, in the current app, so they help players now. The Rust port
-carries them over. Each is checked against the mission: 14a and 14b keep a remapped controller
-correct at a tournament, and 14c and 14d are the calibration half of it.
+These come before the Rust work, in the current app, so they help players now. The Rust port
+carries them over. Each is checked against the mission: 14a to 14c keep a remapped controller
+correct and connected at a tournament, and 14d and 14e are the calibration half of it.
 
-* [ ] **14a Save to controller.**
+* [x] **14a Save to controller.** Built and flashed 2026-11-21 (build 1795296951, protocol 2). UI
+  test 36 of 36; protocol test 27 of 27 on the controller; a saved change survives a replug.
   * Found: there's no save button, so the screen gives no sign a change is kept. In fact every
     pick is written to flash at once: `TC_CMD_ASSIGN` calls `settings_commit_blocks()`. There's
     no undo, and every pick is a flash write.
@@ -513,7 +514,27 @@ correct at a tournament, and 14c and 14d are the calibration half of it.
          stay plain.
     3. If a button sends the wrong bit, it's a firmware bug. Fix it, and add an output check:
        for each USB mode, what the PC receives when each physical button is pressed.
-* [ ] **14c Guided calibration, GC Ultimate.**
+* [ ] **14c Slippi mode keeps dropping in Dolphin.**
+  * Reported 2026-11-21: in Slippi mode, Dolphin's adapter keeps switching between polling and
+    not polling, so it never settles on a GameCube controller in port 1.
+  * Checked: after a 150 ms settle at start, every Slippi report marks port 1 as plugged in
+    (`0x14`). The controller isn't announcing a disconnect, so the reads themselves stall.
+  * Suspects, most likely first, each with a test that rules it in or out:
+    1. **Late-latch holds a report too long.** Dolphin reads unevenly (WinUSB without RAW_IO,
+       about 470 reads a second). `slippi_poll_ab.py` only ever tested a steady 1 kHz. Test: in
+       Slippi mode, turn late-latch off on the Latency tab. If Dolphin settles, this is it.
+    2. **The app shares the USB link.** With the app connected, the live report (125 a second)
+       and commands go over the config interface next to the adapter endpoint. Test: close the
+       app, then replug.
+    3. **Two adapters with one ID.** The Lossless adapter and the GC Ultimate in Slippi mode are
+       both `057E:0337`, and Dolphin opens the first it finds. Test: unplug the Lossless adapter.
+    4. **A USB reset loop.** Test: log Windows device events while Dolphin runs and look for the
+       controller leaving and coming back.
+  * Then a regression test that polls the way Dolphin does (uneven gaps, no RAW_IO, Dolphin's
+    read timeout) for a minute, and fails on any stall.
+  * If it's late-latch: a read is never held back past the next expected poll, and late-latch
+    drops to stock timing while polls are uneven, as it already does over the GameCube port.
+* [ ] **14d Guided calibration, GC Ultimate.**
   * Found: the Live tab shows how far each notch is off but has no way to fix it.
   * Building blocks:
     * HOJA's analog commands `ANALOG_CMD_CALIBRATE_START` (capture the center, then the range
@@ -537,7 +558,9 @@ correct at a tournament, and 14c and 14d are the calibration half of it.
     5. **Check:** the notch check runs by itself and shows Melee coordinates against 1.0000 and
        0.7000. A notch that's off can be nudged a step at a time, with the readout updating
        live.
-    6. **Save** writes flash once. **Cancel** or a disconnect restores the backup.
+    6. **Save to controller**, on the same bar as remaps (14a), writes flash once. **Cancel**
+       or a disconnect restores the backup. The owner's test found there's no way to save a
+       calibration today, so the wizard isn't finished until its result survives a replug.
   * On connect: if the controller says it was never calibrated, or the notch check finds a notch
     more than one unit off, offer "Calibrate your sticks (about 2 minutes)".
   * Snapback, deadzone and trigger setup stay as they are, and come later.
@@ -545,20 +568,20 @@ correct at a tournament, and 14c and 14d are the calibration half of it.
     * the demo controller simulates a calibration
     * the UI test runs the wizard from start to finish
     * by hand, the result compared with GTS (15c)
-* [ ] **14d Guided calibration, Phob.**
+* [ ] **14e Guided calibration, Phob.**
   * A Phob takes no commands over USB. It calibrates with button combos on the controller (A,
     X, Y plus L or R, then A for each point, then notch adjustment).
   * The app can still follow along:
     * It reads the Phob through the adapter, shows the step the Phob is on, where to put the
       stick and which button to press next, and flags a point captured off target.
-    * It then runs the same check as 14c, with adjustment hints in Phob terms ("press X once to
+    * It then runs the same check as 14d, with adjustment hints in Phob terms ("press X once to
       move up-right toward 0.7000").
   * Scope now: write the step script from PhobGCC v0.29's calibration guide and source (13a),
     with the combos, the order of center and notch points, and what each button does during
     notch adjustment.
-  * Build: once the Rust USB crate reads the adapter (14h), since a browser can't. This is 13c;
+  * Build: once the Rust USB crate reads the adapter (14i), since a browser can't. This is 13c;
     the two are one step.
-* [ ] **14e Nord theme.** Move the app and the README from Dracula to Ghostty's Nord theme.
+* [ ] **14f Nord theme.** Move the app and the README from Dracula to Ghostty's Nord theme.
   * Palette, from Ghostty's bundled `Nord` theme (check against the theme file when building):
     * background `#2e3440`, foreground `#d8dee9`
     * Polar Night `#3b4252` `#434c5e` `#4c566a`
@@ -571,33 +594,37 @@ correct at a tournament, and 14c and 14d are the calibration half of it.
     as GameCube colors in Nord's shades).
   * README: re-render `assets/logo.png` in Nord with `assets/render.mjs`, and take a new
     screenshot.
+  * The controller drawing was redrawn 2026-11-21 from a line drawing of a GameCube controller
+    the owner picked: dashed body, wells and seam, solid buttons, the GC Ultimate's extra
+    buttons added. Its colors are the `--pad-*` variables in `style.css`, so it changes with the
+    theme.
   * `CONTRIBUTING.md`'s theme section moves to Nord, with the same contrast floors. Phase 16's
     Dracula LED preset becomes a Nord preset.
   * Check contrast: Nord's muted gray `#4c566a` on the background is too faint for text, so it
     is used for lines only.
 
 ### Rust
-* [ ] **14f Spike.** A `techchase-core` crate plus a CLI matching `gcu.py`.
+* [ ] **14g Spike.** A `techchase-core` crate plus a CLI matching `gcu.py`.
   * It passes the same checks as `tests/app/protocol_test.mjs` on the real controller.
   * It polls the controller at about 1 kHz with RAW_IO, trying `nusb` first and `rusb` (libusb)
     second.
   * It opens the Lossless adapter and reads port 1.
   * These are the two things a browser can't do, so the spike proves them before anything else is
     built.
-* [ ] **14g Core crate.**
+* [ ] **14h Core crate.**
   * Protocol, live report parsing, the Melee math (`tools/app/melee.js` and its tests move over),
     layouts and profiles.
   * Pure, no USB. Newtypes for input codes and units, enums for commands and modes.
   * The `scadoshi-rust` lint set and wave's `rustfmt.toml` and `clippy.toml`, warnings as errors.
-* [ ] **14h USB crate.** GC Ultimate config interface, GameCube adapter (for the Phob), RAW_IO,
+* [ ] **14i USB crate.** GC Ultimate config interface, GameCube adapter (for the Phob), RAW_IO,
   hot-plug.
-* [ ] **14i Desktop app.** Tauri 2. The current screens (HTML, CSS, JavaScript) move over as they
+* [ ] **14j Desktop app.** Tauri 2. The current screens (HTML, CSS, JavaScript) move over as they
   are and call the Rust core instead of WebUSB.
   * Installers for Windows and Mac.
   * One app finds both the GC Ultimate and a Phob on an adapter.
-* [ ] **14j Web build.** The core compiled to WebAssembly for the GitHub Pages version, which stays
+* [ ] **14k Web build.** The core compiled to WebAssembly for the GitHub Pages version, which stays
   for setting up a GC Ultimate from a phone at a venue.
-* [ ] **14k Retire the copies.** Delete the JavaScript protocol module and the Python tools once the
+* [ ] **14l Retire the copies.** Delete the JavaScript protocol module and the Python tools once the
   Rust CLI and the WebAssembly build cover them. The test suites move to `cargo test` plus the UI
   smoke test.
 * Later, not now: rewriting the screens themselves in Rust (Dioxus, as scadoshi's `orangui` uses).
@@ -641,9 +668,9 @@ as up-right (76, 73) = (0.7125, 0.6875)).
   * UI smoke test: 28 of 28.
 * [ ] **15c Against GTS.** Compare the live view with GTS on the same controller and notch. Raw XY
   must match in Slippi mode.
-* [ ] **15d Guided GC Ultimate calibration in the live view.** Moved up to 14c.
+* [ ] **15d Guided GC Ultimate calibration in the live view.** Moved up to 14d.
 * [ ] **15e The Phob in the same view.** Once Phase 13 reads a Phob through the adapter, it feeds
-  this view, and 14d's guided calibration runs here.
+  this view, and 14e's guided calibration runs here.
 * [ ] **15f More GTS tools.** Trigger oscilloscope, button timing (press to release, for
   double-press checks), a 2D plot that records a whole stick sweep, and export of a calibration
   report.

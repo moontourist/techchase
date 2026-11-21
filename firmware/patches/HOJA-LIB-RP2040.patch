@@ -29,10 +29,10 @@ index bd62f6b..ff35db0 100644
    ${HOJA_LIB_ROOT}/src/devices/battery.c
 diff --git a/include/input/macros/macro_quick_remap.h b/include/input/macros/macro_quick_remap.h
 new file mode 100644
-index 0000000..ea5570f
+index 0000000..3733f70
 --- /dev/null
 +++ b/include/input/macros/macro_quick_remap.h
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,21 @@
 +#ifndef MACRO_QUICK_REMAP_H
 +#define MACRO_QUICK_REMAP_H
 +
@@ -48,8 +48,10 @@ index 0000000..ea5570f
 +
 +bool macro_quick_remap_active(void);
 +
-+bool macro_quick_remap_assign(mapper_input_code_t src, mapper_input_code_t target);
-+void macro_quick_remap_reset_all(void);
++bool macro_quick_remap_assign(mapper_input_code_t src, mapper_input_code_t target, bool save);
++void macro_quick_remap_reset_all(bool save);
++bool macro_quick_remap_unsaved(void);
++void macro_quick_remap_saved(void);
 +
 +#endif
 diff --git a/include/input/mapper.h b/include/input/mapper.h
@@ -150,6 +152,24 @@ index 0000000..1140186
 +uint32_t latch_next_start_us(bool *valid, uint32_t *period_us);
 +
 +#endif
+diff --git a/include/utilities/profiles.h b/include/utilities/profiles.h
+index 6c2428a..67b8c4c 100644
+--- a/include/utilities/profiles.h
++++ b/include/utilities/profiles.h
+@@ -53,4 +53,13 @@ void profiles_task(uint64_t now_us);
+ // answered here; the others from profiles_task.
+ void profiles_webusb(const uint8_t *data, uint32_t size);
+ 
++typedef enum
++{
++    PROFILES_REVERT_BUSY = 0,
++    PROFILES_REVERT_DONE = 1,
++    PROFILES_REVERT_NO_STORE = 2,
++} profiles_revert_t;
++
++profiles_revert_t profiles_revert_input(void);
++
+ #endif
 diff --git a/include/utilities/tasks.h b/include/utilities/tasks.h
 index 23b47ce..65ac6e3 100644
 --- a/include/utilities/tasks.h
@@ -425,10 +445,10 @@ index 0b7d7c1..1423123 100644
  
 diff --git a/src/input/macros/macro_quick_remap.c b/src/input/macros/macro_quick_remap.c
 new file mode 100644
-index 0000000..466320b
+index 0000000..79f0c2a
 --- /dev/null
 +++ b/src/input/macros/macro_quick_remap.c
-@@ -0,0 +1,291 @@
+@@ -0,0 +1,308 @@
 +#include "input/macros/macro_quick_remap.h"
 +
 +#include <string.h>
@@ -469,6 +489,7 @@ index 0000000..466320b
 +static volatile bool _block_until_mod_up = false;
 +
 +static int8_t _mod_code = -2;
++static volatile bool _unsaved = false;
 +static bool   _candidate[MAPPER_INPUT_COUNT];
 +
 +static void _lookup(void)
@@ -702,7 +723,7 @@ index 0000000..466320b
 +    return _st != QR_IDLE;
 +}
 +
-+bool macro_quick_remap_assign(mapper_input_code_t src, mapper_input_code_t target)
++bool macro_quick_remap_assign(mapper_input_code_t src, mapper_input_code_t target, bool save)
 +{
 +    _lookup();
 +    if (src < 0 || src >= MAPPER_INPUT_COUNT || target < 0 || target >= MAPPER_INPUT_COUNT)
@@ -711,14 +732,30 @@ index 0000000..466320b
 +        return false;
 +    if (!mapper_quick_assign(src, target))
 +        return false;
-+    _store();
++    if (save)
++        _store();
++    else
++        _unsaved = true;
 +    return true;
 +}
 +
-+void macro_quick_remap_reset_all(void)
++void macro_quick_remap_reset_all(bool save)
 +{
 +    mapper_quick_reset_all();
-+    _store();
++    if (save)
++        _store();
++    else
++        _unsaved = true;
++}
++
++bool macro_quick_remap_unsaved(void)
++{
++    return _unsaved;
++}
++
++void macro_quick_remap_saved(void)
++{
++    _unsaved = false;
 +}
 diff --git a/src/input/macros/macro_shutdown.c b/src/input/macros/macro_shutdown.c
 index 406247d..a5e05b8 100644
@@ -913,7 +950,7 @@ index 0a03cca..8c3459f 100644
          // The game sees the pad at rest, but a hand on it still keeps the idle timer off: the mapper's
          // heartbeat below only sees this pass, and not every app view runs the app's own pass
 diff --git a/src/usb/webusb.c b/src/usb/webusb.c
-index 9288855..98c5bba 100644
+index 9288855..efc1db6 100644
 --- a/src/usb/webusb.c
 +++ b/src/usb/webusb.c
 @@ -18,6 +18,10 @@
@@ -985,11 +1022,11 @@ index 9288855..98c5bba 100644
          }
  
          if (!_webusb_sink->send_input(webusb_input_report, 64))
-@@ -297,6 +345,110 @@ static void _webusb_send_fingerprints(void)
+@@ -297,6 +345,137 @@ static void _webusb_send_fingerprints(void)
      }
  }
  
-+#define TC_PROTO           1
++#define TC_PROTO           2
 +#define TC_CMD_INFO        0
 +#define TC_CMD_STATS       1
 +#define TC_CMD_STATS_RESET 2
@@ -998,6 +1035,9 @@ index 9288855..98c5bba 100644
 +#define TC_CMD_RESET_ALL   5
 +#define TC_CMD_MAP         6
 +#define TC_CMD_USB_MODE    7
++#define TC_CMD_SAVE        8
++#define TC_CMD_REVERT      9
++#define TC_FLAG_NO_SAVE    0x01
 +#define TC_MAP_PER_PAGE    4
 +
 +static void _webusb_techchase(const uint8_t *data, uint32_t size)
@@ -1017,6 +1057,7 @@ index 9288855..98c5bba 100644
 +        out[4] = st.mode & 0x7F;
 +        out[5] = (uint8_t)core_current_reportformat();
 +        out[6] = macro_quick_remap_active() ? 1 : 0;
++        out[7] = macro_quick_remap_unsaved() ? 1 : 0;
 +    }
 +    break;
 +
@@ -1044,13 +1085,36 @@ index 9288855..98c5bba 100644
 +    case TC_CMD_ASSIGN:
 +        if (size < 4)
 +            return;
-+        out[2] = macro_quick_remap_assign((int8_t)data[2], (int8_t)data[3]) ? 1 : 0;
-+        break;
++    {
++        const bool save = !((size > 4) && (data[4] & TC_FLAG_NO_SAVE));
++        out[2] = macro_quick_remap_assign((int8_t)data[2], (int8_t)data[3], save) ? 1 : 0;
++        out[3] = macro_quick_remap_unsaved() ? 1 : 0;
++    }
++    break;
 +
 +    case TC_CMD_RESET_ALL:
-+        macro_quick_remap_reset_all();
++    {
++        const bool save = !((size > 2) && (data[2] & TC_FLAG_NO_SAVE));
++        macro_quick_remap_reset_all(save);
++        out[2] = 1;
++        out[3] = macro_quick_remap_unsaved() ? 1 : 0;
++    }
++    break;
++
++    case TC_CMD_SAVE:
++        settings_commit_blocks();
 +        out[2] = 1;
 +        break;
++
++    case TC_CMD_REVERT:
++    {
++        const profiles_revert_t r = profiles_revert_input();
++        if (r == PROFILES_REVERT_DONE)
++            macro_quick_remap_saved();
++        out[2] = (uint8_t)r;
++        out[3] = macro_quick_remap_unsaved() ? 1 : 0;
++    }
++    break;
 +
 +    case TC_CMD_MAP:
 +    {
@@ -1096,7 +1160,7 @@ index 9288855..98c5bba 100644
  void webusb_command_handler(uint8_t *data, uint32_t size)
  {
      // The app's motion view wants standard IMU data. Through the dongle or BLE a game may be using
-@@ -358,6 +510,10 @@ void webusb_command_handler(uint8_t *data, uint32_t size)
+@@ -358,6 +537,10 @@ void webusb_command_handler(uint8_t *data, uint32_t size)
              // Do nothing
          break;
  
@@ -1739,6 +1803,52 @@ index 0000000..6e42c60
 +        break;
 +    }
 +}
+diff --git a/src/utilities/profiles.c b/src/utilities/profiles.c
+index 5ef9816..8a09e3b 100644
+--- a/src/utilities/profiles.c
++++ b/src/utilities/profiles.c
+@@ -405,6 +405,21 @@ void profiles_init(void)
+     _profiles_upgrade_imu();
+ }
+ 
++profiles_revert_t profiles_revert_input(void)
++{
++    if (!_profiles_ready)
++        return PROFILES_REVERT_NO_STORE;
++    if (_profiles_dirty_mask & (uint8_t)(1u << _profiles_active))
++        return PROFILES_REVERT_BUSY;
++    const profile_s *stored = _profiles_stored(_profiles_active);
++    if (!stored)
++        return PROFILES_REVERT_BUSY;
++    memcpy(live_settings.input_configuration_block, (const uint8_t *)stored + offsetof(profile_s, input),
++           INPUT_CFB_SIZE);
++    settings_reinit_block(CFG_BLOCK_INPUT);
++    return PROFILES_REVERT_DONE;
++}
++
+ bool profiles_save(void)
+ {
+     if (!_profiles_ready)
+diff --git a/src/utilities/settings.c b/src/utilities/settings.c
+index 730d5f4..793c212 100644
+--- a/src/utilities/settings.c
++++ b/src/utilities/settings.c
+@@ -24,6 +24,7 @@
+ #include "input/mapper.h"
+ #include "input/hover.h"
+ #include "input/macros/macro_tourney.h"
++#include "input/macros/macro_quick_remap.h"
+ #include "utilities/tasks.h"
+ #include "devices/haptics.h"
+ 
+@@ -193,6 +194,7 @@ void settings_commit_blocks()
+     // With profiles, the store writes the global record and the active profile from the task
+     if (!profiles_save())
+         flash_hal_write((uint8_t *) &live_settings, sizeof(settings_live_s), 0);
++    macro_quick_remap_saved();
+ 
+     MUTEX_HAL_EXIT(&_settings_mutex);
+ }
 diff --git a/src/utilities/tasks.c b/src/utilities/tasks.c
 index a352ca1..2a2cb8e 100644
 --- a/src/utilities/tasks.c

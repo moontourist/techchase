@@ -3,7 +3,10 @@ export const ID_READ_STATIC_BLOCK = 0x03;
 export const ID_INPUT_COMMAND = 0x05;
 export const ID_TECHCHASE = 0xC0;
 
-export const T = { INFO: 0, STATS: 1, STATS_RESET: 2, LATCH: 3, ASSIGN: 4, RESET_ALL: 5, MAP: 6, USB_MODE: 7 };
+export const T = { INFO: 0, STATS: 1, STATS_RESET: 2, LATCH: 3, ASSIGN: 4, RESET_ALL: 5, MAP: 6, USB_MODE: 7, SAVE: 8, REVERT: 9 };
+const NO_SAVE = 0x01;
+const REVERT = { BUSY: 0, DONE: 1, NO_STORE: 2 };
+export const canHoldChanges = (info) => !!info?.techchase && info.proto >= 2;
 
 export const GC_CODES = ['A', 'B', 'X', 'Y', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'START', 'Z', 'L', 'R', 'L_ANALOG',
   'R_ANALOG', 'LX_RIGHT', 'LX_LEFT', 'LY_UP', 'LY_DOWN', 'RX_RIGHT', 'RX_LEFT', 'RY_UP', 'RY_DOWN', 'ZL', 'MINUS',
@@ -229,7 +232,10 @@ export class GcuDevice {
       if (e instanceof TimeoutError) return { techchase: false };
       throw e;
     }
-    return { techchase: true, proto: r[2], latchOn: !!r[3], latchMode: r[4], reportFormat: r[5], quickRemap: !!r[6] };
+    return {
+      techchase: true, proto: r[2], latchOn: !!r[3], latchMode: r[4], reportFormat: r[5], quickRemap: !!r[6],
+      unsaved: r[2] >= 2 && !!r[7],
+    };
   }
 
   async stats() {
@@ -266,12 +272,27 @@ export class GcuDevice {
     return entries;
   }
 
-  async assign(src, target) {
-    const r = await this.command(T.ASSIGN, src, target);
+  async assign(src, target, { save = true } = {}) {
+    const r = await this.command(T.ASSIGN, src, target, save ? 0 : NO_SAVE);
     return !!r[2];
   }
 
-  resetAll() { return this.command(T.RESET_ALL); }
+  resetAll({ save = true } = {}) { return this.command(T.RESET_ALL, save ? 0 : NO_SAVE); }
+
+  async save() {
+    const r = await this.command(T.SAVE);
+    if (!r[2]) throw new Error('the controller did not save');
+  }
+
+  async revert() {
+    for (let i = 0; i < 25; i++) {
+      const r = await this.command(T.REVERT);
+      if (r[2] === REVERT.DONE) return;
+      if (r[2] === REVERT.NO_STORE) throw new Error('this controller can’t reload its saved layout; unplug it to drop the changes');
+      await new Promise((res) => setTimeout(res, 40));
+    }
+    throw new Error('the controller is still writing its last save; try again');
+  }
 
   async setUsbMode(id) {
     const r = await this.command(T.USB_MODE, id);
@@ -319,9 +340,9 @@ export function layoutOf(entries) {
   return out;
 }
 
-export async function applyLayout(dev, pairs) {
-  await dev.resetAll();
+export async function applyLayout(dev, pairs, { save = true } = {}) {
+  await dev.resetAll({ save });
   for (const [s, t] of pairs) {
-    if (!(await dev.assign(s, t))) throw new Error(`the controller refused remapping input ${s}`);
+    if (!(await dev.assign(s, t, { save }))) throw new Error(`the controller refused remapping input ${s}`);
   }
 }

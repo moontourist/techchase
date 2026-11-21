@@ -29,7 +29,8 @@ try {
 
   const info = await dev.info();
   console.log('info', info, FORMATS[info.reportFormat], LATCH_MODES[info.latchMode]);
-  check(info.techchase && info.proto === 1, 'techchase INFO reply');
+  check(info.techchase && info.proto === 2, 'techchase INFO reply, protocol 2');
+  check(info.unsaved === false, 'nothing unsaved at the start');
 
   await dev.resetStats();
   await new Promise((r) => setTimeout(r, 300));
@@ -58,6 +59,27 @@ try {
   check(m.ZR.gcCur === m.ZR.gcDef, 'ZR back to default');
 
   check(!(await dev.assign(byName.Power.code, x.code)), 'Power refused by the firmware');
+
+  check(await dev.assign(zr.code, x.code, { save: false }), 'ASSIGN ZR -> X without saving accepted');
+  m = Object.fromEntries((await dev.map()).map((e) => [e.name, e]));
+  check(codeName(GC_CODES, m.ZR.gcCur) === 'X', 'the unsaved change is live');
+  check((await dev.info()).unsaved === true, 'INFO reports unsaved changes');
+  await dev.revert();
+  m = Object.fromEntries((await dev.map()).map((e) => [e.name, e]));
+  check(m.ZR.gcCur === m.ZR.gcDef, 'REVERT puts ZR back to the saved layout');
+  check((await dev.info()).unsaved === false, 'nothing unsaved after REVERT');
+
+  await dev.resetAll({ save: false });
+  check((await dev.info()).unsaved === true, 'RESET_ALL without saving leaves changes unsaved');
+  await dev.revert();
+  check(JSON.stringify(layoutOf(await dev.map()).sort()) === JSON.stringify(original.slice().sort()), 'REVERT after RESET_ALL brings the saved layout back');
+
+  check(await dev.assign(zr.code, x.code, { save: false }), 'ASSIGN ZR -> X without saving, again');
+  await dev.save();
+  check((await dev.info()).unsaved === false, 'SAVE clears the unsaved flag');
+  await dev.revert();
+  m = Object.fromEntries((await dev.map()).map((e) => [e.name, e]));
+  check(codeName(GC_CODES, m.ZR.gcCur) === 'X', 'a saved change survives REVERT');
 
   const swap = [[zr.code, x.code], [x.code, zr.code]];
   await applyLayout(dev, swap);

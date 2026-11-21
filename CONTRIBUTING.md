@@ -45,19 +45,16 @@ A suppression sits on the narrowest line it can, with the reason on the same lin
 import gcu  # noqa: E402  the path to tools/ is added just above
 ```
 
-## Comments
+## No comments
 
-A comment says what the code does, in the present tense, and only when the code doesn't say it
-itself.
+The code carries no comments. Names, small functions and tests say what it does. A unit, range or
+format goes in the name (`age_us`, `lt12`). The reason for a change goes in its commit message, and
+the plan and measurements go in PLAN.md.
 
-- No history: no "previously", "now", "used to", dates or issue numbers. Git has the history.
-- No sermon: say what the line does. If the consequence is what isn't obvious, give it one clause.
-- No restating the name, and no pointers to docs: write the reason in a line instead.
-- Do write units, ranges, formats, invariants and surprises (`// µs since boot, wraps after 71 min`).
-- Every file opens with a one-line header saying what it is.
-- Section banners are one line: `// == stats ==`.
-- No em dashes, in code or prose. Use a sentence, a colon or a comma. American spelling.
-- Upstream files mark each change with a `// techchase:` comment, so a rebase finds them.
+- The one exception is a lint suppression, which needs its reason on the same line (above).
+- HHL's own comments in upstream files stay as they are. `firmware/patches/` shows every line this
+  project changed there.
+- No em dashes in prose. Use a sentence, a colon or a comma. American spelling.
 
 ## Theme
 
@@ -77,5 +74,4 @@ New colors go in as variables, never as hex values in a rule.
 
 - One line, saying what changed. Multi-line only when there are many changes.
 - Related files go together. No emoji.
-- No AI-agent signatures or co-author lines.
 - Run the checks in the README's Develop section before pushing.

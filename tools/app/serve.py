@@ -1,10 +1,3 @@
-"""Open the techchase app: serves this folder on http://127.0.0.1 (WebUSB needs a secure origin,
-which localhost is) and opens it in Chrome or Edge.
-
-  python tools/app/serve.py            (Ctrl+C to stop)
-  python tools/app/serve.py --demo     (no controller needed)
-  python tools/app/serve.py --no-browser --port 8474   (just serve)
-"""
 import functools
 import http.server
 import os
@@ -17,7 +10,6 @@ import webbrowser
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = 8473
 
-
 def browser():
     for p in (r"C:\Program Files\Google\Chrome\Application\chrome.exe",
               r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -27,7 +19,6 @@ def browser():
             return p
     return shutil.which('google-chrome') or shutil.which('chromium') or shutil.which('microsoft-edge')
 
-
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -36,9 +27,7 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         super().end_headers()
 
-
 Quiet.extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, '.js': 'text/javascript'}
-
 
 def main():
     port = int(sys.argv[sys.argv.index('--port') + 1]) if '--port' in sys.argv else PORT
@@ -57,7 +46,6 @@ def main():
         threading.Event().wait()
     except KeyboardInterrupt:
         srv.shutdown()
-
 
 if __name__ == '__main__':
     main()

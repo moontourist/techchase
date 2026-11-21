@@ -1,7 +1,5 @@
-# A/B input-age test in Slippi mode. Dolphin holds the adapter exclusively while it runs, so each
-# round sets the latch, lets Dolphin poll for $Seconds, closes it, then reads the firmware's stats.
 param([int]$Seconds = 15, [int]$Rounds = 2,
-      [Parameter(Mandatory = $true)][string]$Iso)  # a Melee ISO, e.g. Training Mode CE
+      [Parameter(Mandatory = $true)][string]$Iso)
 
 $root = Split-Path -Parent $PSScriptRoot
 $py = Join-Path $root '.venv\Scripts\python.exe'

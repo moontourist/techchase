@@ -57,8 +57,8 @@ real comparison):
   * no unchecked casts or indexing: every narrowing cast and every buffer index is range-checked or
     carries a comment saying why it can't go wrong
   * every lint exception explained, on the narrowest line it can be
-  * comments say what the code does, in the present tense, with no history and no em dashes
-  * one-line commit messages, no emoji, no AI signatures
+  * no comments in code; reasons go in commit messages and this plan, and prose has no em dashes
+  * one-line commit messages, no emoji
 * **License:** CC BY-NC-SA 3.0, the same as HOJA, because the firmware is a derivative of it.
 
 ## Phase 0: Research findings (done)
@@ -367,9 +367,10 @@ Phase 7; nothing here changes how the controller behaves.
   (`WEBUSB_ID_TECHCHASE`, still `0xC0`), the `TC_CMD_*` commands, the app, the tools. The protocol
   bytes didn't change, so the firmware on the controller needs no reflash for this.
 * [x] **12c Theme.** Dracula, see Phase 6 status.
-* [ ] **12d Code audit.** Hold every file this project wrote to `CONTRIBUTING.md`: comments that
-  tell history ("techchase: 15 -> 4 us per row"), unexplained casts, unchecked buffer indexes in the
-  WebUSB handler, Python errors that print a traceback to a player.
+* [ ] **12d Code audit.** Hold every file this project wrote to `CONTRIBUTING.md`: unexplained
+  casts, unchecked buffer indexes in the WebUSB handler, Python errors that print a traceback to a
+  player. Comments are done: on 2026-11-21 every comment this project wrote was removed (HHL's own
+  comments in upstream files stay), and the rule is now no comments in code.
 * [ ] **12e Lint and format, warnings as errors.**
   * C (only the files this project owns or changed): `-Wall -Wextra -Wconversion -Wsign-conversion
     -Werror`, plus `clang-format` with a checked-in style. Upstream files keep upstream flags.

@@ -1,22 +1,4 @@
 #!/usr/bin/env python3
-"""gcu.py - desktop companion for the GC Ultimate techchase firmware (HOJA fork).
-
-Talks to the controller's WinUSB config interface (the one the official web app uses), so no driver
-install is needed on Windows. Needs: pip install pyusb libusb-package
-
-  gcu.py info                 controller, firmware, mode, late-latch state
-  gcu.py backup [FILE]        save every settings block (works on official firmware too)
-  gcu.py stats [-w] [-r]      input age at hand-off (-w: live, -r: reset first)
-  gcu.py ab [SECONDS]         A/B: stock timing vs late-latch, same controller, same mode
-  gcu.py latch on|off         late-latch on/off (off = stock timing; not saved)
-  gcu.py map                  what every button does now vs default (GameCube and Switch)
-  gcu.py remap SRC TARGET     SRC does what TARGET does by default, in every mode ("remap Z X")
-  gcu.py reset                every button back to default
-  gcu.py mode switch|sinput|slippi   change USB mode until unplugged (as the web app does)
-
-Button names: the GameCube job a button has by default (A B X Y Z L R START UP DOWN LEFT RIGHT ZL)
-or the board's own label (ZR, Plus, Home, ...). Case doesn't matter.
-"""
 import argparse
 import datetime
 import json
@@ -48,16 +30,14 @@ FORMATS = {0: 'Switch Pro', 1: 'XInput', 2: 'Slippi (GC adapter)', 3: 'GameCube 
 MODE_ARGS = {'switch': 0, 'slippi': 2, 'sinput': 6}
 LATCH_MODES = {0: 'off', 1: 'USB, learning the host poll phase (stock timing)', 2: 'USB late-latch',
                3: 'GameCube port, polls not steady (stock 1 ms timer)', 4: 'GameCube port poll-lock'}
-STATS_FMT = '<BBHIIIIIIIII'  # latch_stats_s
+STATS_FMT = '<BBHIIIIIIIII'
 STATS_KEYS = ['version', 'mode', 'guard_us', 'count', 'age_min_us', 'age_max_us', 'age_avg_us',
               'misses', 'phase_us', 'lead_us', 'read_us', 'read_max_us']
-
 
 def code_name(table, code):
     if code is None or code < 0 or code == 0xFF:
         return '-'
     return table[code] if code < len(table) else f'#{code}'
-
 
 class Pad:
     def __init__(self):
@@ -137,7 +117,6 @@ class Pad:
             buf += r[4:4 + r[2]]
         return bytes(buf) if buf else None
 
-
 def fw_version(pad):
     blk = pad.read_block(ID_READ_STATIC_BLOCK, 0)
     if not blk or len(blk) < 708:
@@ -145,11 +124,9 @@ def fw_version(pad):
     name = blk[0:16].split(b'\0')[0].decode(errors='replace')
     return name, struct.unpack_from('<I', blk, 704)[0]
 
-
 def stats(pad):
     r = pad.command(T_STATS)
     return dict(zip(STATS_KEYS, struct.unpack_from(STATS_FMT, r, 2)))
-
 
 def print_stats(s):
     off = bool(s['mode'] & 0x80)
@@ -164,9 +141,7 @@ def print_stats(s):
     print(f"schedule  lead {s['lead_us']} us (guard {s['guard_us']})   {what} {s['phase_us']} us"
           f"   input read {s['read_us']} us (max {s['read_max_us']})")
 
-
 def resolve(entries, name):
-    """A button by board label, or by its default GameCube job."""
     n = name.strip().upper().replace(' ', '')
     aliases = {'PLUS': 'START', 'JUMP': None}
     for e in entries:
@@ -178,7 +153,6 @@ def resolve(entries, name):
             return e
     sys.exit(f"Unknown button '{name}'. Try one of: " +
              ', '.join(sorted({e['name'] for e in entries} | {code_name(GC_CODES, e['gc_def']) for e in entries} - {'-'})))
-
 
 def read_map(pad):
     entries = []
@@ -196,7 +170,6 @@ def read_map(pad):
             break
     return entries
 
-
 def cmd_info(pad, a):
     name, fw = fw_version(pad)
     print(f"controller  {pad.product} ({pad.dev.idVendor:04x}:{pad.dev.idProduct:04x})  board name {name}")
@@ -210,7 +183,6 @@ def cmd_info(pad, a):
     print(f"techchase   protocol {r[2]}, late-latch {'on' if r[3] else 'OFF'}, "
           f"USB mode {FORMATS.get(r[5], r[5])}, quick remap {'ON' if r[6] else 'off'}")
     print(f"latch       {LATCH_MODES.get(r[4], r[4])}")
-
 
 def cmd_backup(pad, a):
     name, fw = fw_version(pad)
@@ -232,7 +204,6 @@ def cmd_backup(pad, a):
     sizes = ', '.join(f"{k}:{len(v) // 2}" for k, v in out['config'].items())
     print(f"saved {path}\n  config blocks (id:bytes) {sizes}\n  static blocks {len(out['static'])}")
 
-
 def cmd_stats(pad, a):
     if a.reset:
         pad.command(T_STATS_RESET)
@@ -251,13 +222,12 @@ def cmd_stats(pad, a):
     except KeyboardInterrupt:
         print()
 
-
 def cmd_ab(pad, a):
     secs = a.seconds
     results = {}
     for label, on in (('stock timing', 0), ('late-latch', 1), ('stock timing', 0), ('late-latch', 1)):
         pad.command(T_LATCH, on)
-        time.sleep(0.5)  # learn / settle
+        time.sleep(0.5)
         pad.command(T_STATS_RESET)
         time.sleep(secs)
         s = stats(pad)
@@ -270,11 +240,9 @@ def cmd_ab(pad, a):
         print(f"\ninput age: {avg['stock timing']:.0f} us -> {avg['late-latch']:.0f} us "
               f"({avg['stock timing'] - avg['late-latch']:.0f} us less)")
 
-
 def cmd_latch(pad, a):
     pad.command(T_LATCH, 1 if a.state == 'on' else 0)
     print(f"late-latch {a.state} (until unplugged)")
-
 
 def cmd_map(pad, a):
     entries = read_map(pad)
@@ -286,7 +254,6 @@ def cmd_map(pad, a):
         print(f"{e['name']:9s} {code_name(GC_CODES, e['gc_cur']):20s} {code_name(GC_CODES, e['gc_def']):10s} "
               f"{code_name(SW_CODES, e['sw_cur']):11s} {code_name(SW_CODES, e['sw_def']):10s}{mark}")
     print("\n* = remapped")
-
 
 def cmd_remap(pad, a):
     entries = read_map(pad)
@@ -300,19 +267,16 @@ def cmd_remap(pad, a):
         print(f"{src['name']} now does what {tgt['name']} does by default "
               f"(GameCube: {code_name(GC_CODES, tgt['gc_def'])}, Switch: {code_name(SW_CODES, tgt['sw_def'])}). Saved.")
 
-
 def cmd_reset(pad, a):
     pad.command(T_RESET_ALL)
     print("Every button is back to default. Saved.")
-
 
 def cmd_mode(pad, a):
     r = pad.command(T_USB_MODE, MODE_ARGS[a.mode])
     print(f"switching to {a.mode} (until unplugged)" if r[2] else "the controller refused (not on USB?)")
 
-
 def main():
-    p = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    p = argparse.ArgumentParser(description='Desktop companion for the GC Ultimate techchase firmware (HOJA fork).')
     sp = p.add_subparsers(dest='cmd', required=True)
     sp.add_parser('info').set_defaults(fn=cmd_info)
     b = sp.add_parser('backup'); b.add_argument('file', nargs='?'); b.set_defaults(fn=cmd_backup)
@@ -332,7 +296,6 @@ def main():
         sys.exit(str(e))
     finally:
         pad.close()
-
 
 if __name__ == '__main__':
     main()

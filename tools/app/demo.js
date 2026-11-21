@@ -1,12 +1,6 @@
-// A stand-in controller for ?demo: the same API as GcuDevice, held in memory, starting from the
-// real GC Ultimate's button map (demo-fixture.json). Latency numbers are made up but shaped like the
-// measured ones.
 import { encodeLive, parseLive, remappable } from './gcu-protocol.js';
 import { GC_PER_FW } from './melee.js';
 
-// A hand on the demo controller: the main stick visits the eight notches of a calibrated PhobGCC
-// (its GTS readings, in GameCube units), lets go of each with a snapback wobble, then circles the
-// gate. The C-stick turns slowly, L ramps up and down, A and ZR get tapped.
 const DEMO_NOTCHES = [[100, 0], [76, 73], [0, 102], [-74, 77], [-101, 0], [-73, -73], [0, -101], [74, -75]];
 const STEP_MS = 1200;
 const CYCLE_MS = DEMO_NOTCHES.length * STEP_MS + 4400;
@@ -41,9 +35,9 @@ function demoHand(t) {
   const ca = (t / 2000) * 2 * Math.PI;
   const tri = 1 - Math.abs(((t / 1500) % 2) - 1);
   const presses = [];
-  if (t % 1700 < 150) presses.push(0); // A
-  if (t % 3100 < 200) presses.push(9); // ZR
-  if (tri > 0.97) presses.push(10); // L, fully in
+  if (t % 1700 < 150) presses.push(0);
+  if (t % 3100 < 200) presses.push(9);
+  if (tri > 0.97) presses.push(10);
   return {
     game: { lx: fw(game[0]), ly: fw(game[1]), rx: fw(70 * Math.cos(ca)), ry: fw(70 * Math.sin(ca)) },
     pre: { lx: fw(pre[0]), ly: fw(pre[1]), rx: fw(70 * Math.cos(ca)), ry: fw(70 * Math.sin(ca)) },

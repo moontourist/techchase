@@ -1,13 +1,11 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 6e3e3ec..57fba14 100644
+index 6e3e3ec..1fd5b47 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -222,6 +222,14 @@ function(_hoja_report_path_ram_objects OUT_VAR)
+@@ -222,6 +222,12 @@ function(_hoja_report_path_ram_objects OUT_VAR)
      *hhl_tusb_webusb.c.obj
      # The board's own input read (cb_hoja_read_input)
      *.dir/main.c.obj
-+    # techchase: the GameCube port and Slippi (GameCube adapter) report paths, and the late-latch
-+    # that schedules them, run every report too
 +    *cores/core_slippi.c.obj
 +    *cores/core_gamecube.c.obj
 +    *hal/rp2040/joybus_gc_hal.c.obj
@@ -31,26 +29,12 @@ index bd62f6b..ff35db0 100644
    ${HOJA_LIB_ROOT}/src/devices/battery.c
 diff --git a/include/input/macros/macro_quick_remap.h b/include/input/macros/macro_quick_remap.h
 new file mode 100644
-index 0000000..2ea6be6
+index 0000000..ea5570f
 --- /dev/null
 +++ b/include/input/macros/macro_quick_remap.h
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,19 @@
 +#ifndef MACRO_QUICK_REMAP_H
 +#define MACRO_QUICK_REMAP_H
-+
-+// techchase: remap buttons on the controller itself, no PC needed, in the style of Smash
-+// Ultimate's controls screen. Works in every mode and game: it rewrites the firmware's mapping.
-+//
-+//   Hold Power + Start 1.5 s   -> Quick Remap on (power LED pulses purple, one tick). The game sees
-+//                                 the controller at rest until it's off again.
-+//   Press the button to change -> one tick
-+//   Press the button whose job it should do -> two ticks + green flash, stored at once
-+//                                 (the same button twice: back to its own default)
-+//   Hold Start 3 s             -> every button back to default (orange flash, three ticks)
-+//   Press Power                -> off (or 20 s without a press)
-+//
-+// The modifier is the board's shipping/power button (hoja_config_s.shipping_macro_code[0]), or
-+// Home on a board without one.
 +
 +#include <stdint.h>
 +#include <stdbool.h>
@@ -58,173 +42,128 @@ index 0000000..2ea6be6
 +
 +void macro_quick_remap(uint64_t timestamp, mapper_input_s *input);
 +
-+// The game's path holds at rest: on, or the combo held (mapper_get_input, every report)
 +bool macro_quick_remap_game_hold(const mapper_input_s *input);
 +
-+// Holding Power must not shut down: on, just turned off, or Power held with another button
 +bool macro_quick_remap_blocks_shutdown(const mapper_input_s *input);
 +
 +bool macro_quick_remap_active(void);
 +
-+// For WebUSB / the desktop tool: the same changes, stored at once
 +bool macro_quick_remap_assign(mapper_input_code_t src, mapper_input_code_t target);
 +void macro_quick_remap_reset_all(void);
 +
 +#endif
 diff --git a/include/input/mapper.h b/include/input/mapper.h
-index 625c004..3e1d2d4 100644
+index 625c004..ec5a877 100644
 --- a/include/input/mapper.h
 +++ b/include/input/mapper.h
-@@ -31,4 +31,16 @@ bool mapper_game_inputs_held(void);
+@@ -31,4 +31,8 @@ bool mapper_game_inputs_held(void);
  // The config app said something: keeps a hold alive (it lapses after 5 s of silence)
  void mapper_app_heard(void);
  
-+// --- techchase: Quick Remap (input/macros/macro_quick_remap.c) ---
-+// Physical input `src` takes over what physical input `target` does by default, in every mode's
-+// profile at once. src == target puts src back to its own default. A trigger click carries its
-+// analog half along (to the target's analog half if the target is a trigger, else off).
-+// RAM only; settings_commit_blocks() stores it.
 +bool mapper_quick_assign(mapper_input_code_t src, mapper_input_code_t target);
-+// Every mode's profile back to the board defaults (RAM only, as above)
 +void mapper_quick_reset_all(void);
-+// For the desktop tool: input `in`'s current and default output in the GameCube and Switch
-+// profiles (-1 = nothing)
 +void mapper_quick_describe(mapper_input_code_t in, int8_t *gc_cur, int8_t *gc_def, int8_t *sw_cur, int8_t *sw_def);
 +
  #endif
 \ No newline at end of file
 diff --git a/include/usb/webusb.h b/include/usb/webusb.h
-index ff3efca..1015d73 100644
+index ff3efca..74d0e15 100644
 --- a/include/usb/webusb.h
 +++ b/include/usb/webusb.h
 @@ -16,9 +16,11 @@ typedef enum
    WEBUSB_ID_PROFILE,            // Settings profiles: list, switch, rename, copy (utilities/profiles.h)
    WEBUSB_LEGACY_SET_BOOTLOADER = 15,
    WEBUSB_ID_BENCH_LOG = 0xB0,   // Bench only (HOJA_BENCH_LOG): the next of the text kept by utilities/bench_log.h
-+  WEBUSB_ID_TECHCHASE = 0xC0,     // techchase: latency stats, Quick Remap, mode (tools/gcu.py). [id][cmd][args]
++  WEBUSB_ID_TECHCHASE = 0xC0,
    WEBUSB_LEGACY_GET_FW_VERSION = 0xAF, 
    WEBUSB_SNAPBACK_CAPTURE = 249, // A stick coming back from a push, both axes at the analog rate (snapback_capture.h)
    WEBUSB_ANALOG_DUMP = 250,
-+  WEBUSB_INPUT_TECHCHASE = 253, // techchase: sticks before and after filtering, every press, both triggers
++  WEBUSB_INPUT_TECHCHASE = 253,
    WEBUSB_INPUT_JOYSTICKS = 254,
    WEBUSB_INPUT_RAW = 255, 
  } webusb_report_id_t;
 diff --git a/include/utilities/latch.h b/include/utilities/latch.h
 new file mode 100644
-index 0000000..a202b77
+index 0000000..1140186
 --- /dev/null
 +++ b/include/utilities/latch.h
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,62 @@
 +#ifndef UTILITIES_LATCH_H
 +#define UTILITIES_LATCH_H
-+
-+// Input late-latch (techchase).
-+//
-+// The buttons are read once per report. What matters for latency is how old that read is when the
-+// host or console actually takes the report ("input age"). Stock firmware starts the read on a
-+// timer or on the USB frame callback (which runs whenever the task loop next reaches the USB stack),
-+// so the read lands at an arbitrary point before the hand-off: up to ~1 ms early.
-+//
-+// This module learns WHEN the hand-off happens, from interrupt-time timestamps:
-+//  * USB: the phase of the host's IN poll within the 1 ms frame (SOF interrupt -> IN complete)
-+//  * Joybus: the console's or adapter's poll period (poll interrupt -> poll interrupt)
-+// and starts each read `lead` microseconds before the next predicted hand-off, where lead is the
-+// measured read-to-ready time plus a guard that widens itself when a hand-off is missed.
-+//
-+// All times are time_us_32() (wraps every ~71 minutes; every comparison is wrap-safe).
 +
 +#include <stdint.h>
 +#include <stdbool.h>
 +
 +typedef enum
 +{
-+    LATCH_MODE_OFF        = 0, // No transport using it
-+    LATCH_MODE_USB_FRAME  = 1, // USB, still learning the host's poll phase: stock frame trigger
-+    LATCH_MODE_USB_LATE   = 2, // USB, reads scheduled against the host's poll
-+    LATCH_MODE_JB_FREE    = 3, // Joybus, polls irregular: stock 1 ms timer
-+    LATCH_MODE_JB_LOCKED  = 4, // Joybus, reads scheduled against the next poll
++    LATCH_MODE_OFF        = 0,
++    LATCH_MODE_USB_FRAME  = 1,
++    LATCH_MODE_USB_LATE   = 2,
++    LATCH_MODE_JB_FREE    = 3,
++    LATCH_MODE_JB_LOCKED  = 4,
 +} latch_mode_t;
 +
-+// Reported over WebUSB (WEBUSB_ID_TECHCHASE / TC_CMD_STATS). Little-endian, packed.
 +typedef struct __attribute__((packed))
 +{
-+    uint8_t  version;     // LATCH_STATS_VERSION
-+    uint8_t  mode;        // latch_mode_t
-+    uint16_t guard_us;    // Safety margin currently added to the lead
-+    uint32_t count;       // Hand-offs measured since the last reset
-+    uint32_t age_min_us;  // Input age at hand-off: button read start -> host/console takes it
++    uint8_t  version;
++    uint8_t  mode;
++    uint16_t guard_us;
++    uint32_t count;
++    uint32_t age_min_us;
 +    uint32_t age_max_us;
 +    uint32_t age_avg_us;
-+    uint32_t misses;      // Hand-offs that got an older read than the one scheduled for them
-+    uint32_t phase_us;    // USB: host poll offset after SOF. Joybus: poll period.
-+    uint32_t lead_us;     // How long before the hand-off each read starts
-+    uint32_t read_us;     // Newest input read's duration (matrix + triggers + processing)
-+    uint32_t read_max_us; // Longest read since the last reset
++    uint32_t misses;
++    uint32_t phase_us;
++    uint32_t lead_us;
++    uint32_t read_us;
++    uint32_t read_max_us;
 +} latch_stats_s;
 +
 +#define LATCH_STATS_VERSION 1
 +
-+// A/B switch (WebUSB): off is the stock timing exactly, for comparison. On by default, not saved.
 +void latch_set_enabled(bool enabled);
 +bool latch_enabled(void);
 +
-+// --- The input read (hover task) ---
 +void     latch_input_read_begin(void);
 +void     latch_input_read_end(void);
-+uint32_t latch_input_read_us(void);       // When the newest finished read started
++uint32_t latch_input_read_us(void);
 +
-+// --- Stats ---
 +void latch_stats_get(latch_stats_s *out);
 +void latch_stats_reset(void);
 +
-+// --- USB ---
-+// Start for a transport that sends a report every frame (1 ms). Others stay stock.
 +void latch_usb_start(void);
 +void latch_usb_stop(void);
-+// Late mode on: the task loop calls this every pass; true once it is time to read for the next poll
 +bool latch_usb_active(void);
 +bool latch_usb_due(void);
-+// A report was armed in the endpoint, built from the read that started at input_us
 +void latch_usb_armed(uint32_t input_us);
-+// The endpoint still holds the previous report while this one waits to go. Returns true when the
-+// caller should drop this report: on the schedule, the previous one is a frame late, and sending
-+// behind it would keep every report after it a frame late too. Dropping one puts the next back in
-+// phase.
 +bool latch_usb_endpoint_busy(void);
-+// Interrupt context (tud_event_hook_cb)
 +void latch_usb_sof_isr(void);
 +void latch_usb_xfer_isr(void);
 +
-+// --- Joybus (GameCube port) ---
 +void latch_jb_start(void);
 +void latch_jb_stop(void);
-+// Interrupt context, on a poll command, before answering. Time read inline by the caller.
 +void latch_jb_poll_isr(uint32_t poll_us);
-+// The report snapshot the next poll answers with was just written from the read at input_us
 +void latch_jb_snapshot(uint32_t input_us);
 +bool latch_jb_locked(void);
-+// Locked: true once it is time to read for the next predicted poll
 +bool latch_jb_due(void);
 +
-+// For the task loop: the next read start, so optional tasks that would still be running then
-+// wait a pass, and the spacing of reads (USB frame / poll period)
 +uint32_t latch_next_start_us(bool *valid, uint32_t *period_us);
 +
 +#endif
 diff --git a/include/utilities/tasks.h b/include/utilities/tasks.h
-index 23b47ce..e5c0147 100644
+index 23b47ce..65ac6e3 100644
 --- a/include/utilities/tasks.h
 +++ b/include/utilities/tasks.h
 @@ -29,6 +29,7 @@ typedef struct
      uint64_t motion_interval_us; // Even-spacing interval for motion tasks (extra reads within a cycle)
      uint8_t  type_mask; // task_type_t to form the mask
      uint32_t required_done_flag; // Bit set in tasks_sm when this required/motion task completes its guaranteed run for the cycle
-+    uint32_t latch_runtime_us; // techchase: longest run seen, every task type (for the late-latch hold-back)
++    uint32_t latch_runtime_us;
      task_fn_t fn;
  } task_s;
  
 diff --git a/src/hal/rp2040/joybus_gc_hal.c b/src/hal/rp2040/joybus_gc_hal.c
-index 62363fa..4655c75 100644
+index 62363fa..dbaccb6 100644
 --- a/src/hal/rp2040/joybus_gc_hal.c
 +++ b/src/hal/rp2040/joybus_gc_hal.c
 @@ -17,6 +17,8 @@
@@ -236,16 +175,15 @@ index 62363fa..4655c75 100644
  #include "utilities/crosscore_utils.h"
  
  #include "devices/battery.h"
-@@ -217,6 +219,8 @@ void __time_critical_func(_gamecube_command_handler)()
+@@ -217,6 +219,7 @@ void __time_critical_func(_gamecube_command_handler)()
        }
        else if (!_byteCounter)
        {
-+        // When the console took this report (one timer read: keeps the reply timing as it was)
 +        const uint32_t poll_us = timer_hw->timerawl;
          _gc_rumble = (dat & 1) ? true : false;
          _gc_brake = (dat & 2) ? true : false;
          _byteCounter = BYTECOUNT_UNKNOWN;
-@@ -226,6 +230,7 @@ void __time_critical_func(_gamecube_command_handler)()
+@@ -226,6 +229,7 @@ void __time_critical_func(_gamecube_command_handler)()
          joybus_jump_output(GC_PIO_IN_USE, PIO_SM, _gamecube_offset);
          _gamecube_send_poll();
          tasks_report_count++;
@@ -253,7 +191,7 @@ index 62363fa..4655c75 100644
          ret = true;
        }
      }
-@@ -425,6 +430,7 @@ static void _gc_set_connected(bool connected)
+@@ -425,6 +429,7 @@ static void _gc_set_connected(bool connected)
  /********* Transport Defines *******************/
  void transport_jbgc_stop()
  {
@@ -261,7 +199,7 @@ index 62363fa..4655c75 100644
    _gc_set_connected(false);
    _gc_timer_started = false;
    _gc_last_poll_us  = 0;
-@@ -448,6 +454,7 @@ bool transport_jbgc_init(core_params_s *params)
+@@ -448,6 +453,7 @@ bool transport_jbgc_init(core_params_s *params)
    if(!_joybus_gc_hal_init())
      return false;
  
@@ -269,7 +207,7 @@ index 62363fa..4655c75 100644
    return true;
  }
  
-@@ -458,15 +465,29 @@ void transport_jbgc_task(uint64_t timestamp)
+@@ -458,15 +464,24 @@ void transport_jbgc_task(uint64_t timestamp)
  
    static interval_s interval = {0};
    static bool build_due = false;
@@ -278,9 +216,6 @@ index 62363fa..4655c75 100644
    // Each poll interval starts a task cycle, which reads the input on the next pass; the report is
 -  // built once it has, so the console gets input read for it (nothing else starts a cycle here)
 -  if (interval_run(timestamp, _gc_hal_params->core_pollrate_us, &interval))
-+  // built once it has, so the console gets input read for it (nothing else starts a cycle here).
-+  // techchase: once the console's polls are steady, each read is timed to finish just before
-+  // the next poll instead (utilities/latch.h); the timer only runs until then.
 +  bool trigger;
 +  if (latch_jb_locked())
 +    trigger = latch_jb_due();
@@ -295,14 +230,12 @@ index 62363fa..4655c75 100644
    }
 -  else if (build_due && tasks_get_required_done())
 +  else if (build_due && tasks_get_required_done() &&
-+           // A read that began after the trigger (a cycle still running when it came keeps its
-+           // older read; it gets 2 ms before the build goes ahead with it)
 +           (!latch_enabled() || ((int32_t)(latch_input_read_us() - trigger_us) >= 0) ||
 +            ((time_us_32() - trigger_us) > 2000u)))
    {
      build_due = false;
  
-@@ -476,6 +497,7 @@ void transport_jbgc_task(uint64_t timestamp)
+@@ -476,6 +491,7 @@ void transport_jbgc_task(uint64_t timestamp)
      {
  
        snapshot_gcinput_write(&_gc_hal_snap, (core_gamecube_report_s *)report.data);
@@ -311,7 +244,7 @@ index 62363fa..4655c75 100644
  
      // Handle rumble state if it changes
 diff --git a/src/hal/rp2040/usb_hal.c b/src/hal/rp2040/usb_hal.c
-index e0d98c9..2d94cdd 100644
+index e0d98c9..a3c455f 100644
 --- a/src/hal/rp2040/usb_hal.c
 +++ b/src/hal/rp2040/usb_hal.c
 @@ -23,6 +23,10 @@
@@ -325,13 +258,11 @@ index e0d98c9..2d94cdd 100644
  // WebUSB landing URL the browser offers when the device is plugged in. Defaults
  // to the HOJA config web app; a board may override it by defining
  // HOJA_WEBUSB_URL in its board_config.h (optional, rarely needed).
-@@ -57,6 +61,22 @@ volatile bool _usb_sendit = false;
+@@ -57,6 +61,20 @@ volatile bool _usb_sendit = false;
  volatile uint8_t _usb_sent_id = 0xFF;
  
  static bool _usb_hal_mounted = false;
 +
-+// techchase: a report waits for an input read that began after its trigger. Stock firmware set
-+// the trigger and sent in the same pass, with the read from the previous frame.
 +static volatile uint32_t _usb_due_us = 0;
 +static volatile bool _usb_due_pending = false;
 +
@@ -348,12 +279,10 @@ index e0d98c9..2d94cdd 100644
  static void _usb_hal_hid_output_report(const uint8_t *buffer, uint16_t len)
  {
      if (_usb_core_params != NULL && _usb_core_params->core_report_tunnel != NULL)
-@@ -90,6 +110,18 @@ static void _usb_hal_on_mount(void)
+@@ -90,6 +108,16 @@ static void _usb_hal_on_mount(void)
      core_ns2gc_usb_configured();
  }
  
-+// Interrupt-time USB events (TinyUSB calls this as each event is queued; tud_sof_cb below runs
-+// later, from the task loop). The late-latch learns the host's poll timing from these.
 +void tud_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)
 +{
 +    (void)rhport;
@@ -367,18 +296,16 @@ index e0d98c9..2d94cdd 100644
  static void _usb_hal_on_sof(uint32_t frame_count)
  {
      bool send_frame = false;
-@@ -97,7 +129,9 @@ static void _usb_hal_on_sof(uint32_t frame_count)
+@@ -97,7 +125,7 @@ static void _usb_hal_on_sof(uint32_t frame_count)
      switch (_usb_frames)
      {
      case 1:
 -        send_frame = true;
-+        // Once the host's poll phase is learned, reads are scheduled against it instead
-+        // (transport_usb_task)
 +        send_frame = !latch_usb_active();
          break;
  
      case 8:
-@@ -129,8 +163,7 @@ static void _usb_hal_on_sof(uint32_t frame_count)
+@@ -129,8 +157,7 @@ static void _usb_hal_on_sof(uint32_t frame_count)
      // before it, and the input is read once per report
      if (send_frame)
      {
@@ -388,7 +315,7 @@ index e0d98c9..2d94cdd 100644
      }
  }
  
-@@ -146,6 +179,7 @@ static void _usb_hal_webusb_rx(const uint8_t *data, uint16_t len)
+@@ -146,6 +173,7 @@ static void _usb_hal_webusb_rx(const uint8_t *data, uint16_t len)
  
  void transport_usb_stop()
  {
@@ -396,11 +323,10 @@ index e0d98c9..2d94cdd 100644
      _usb_hal_mounted = false;
      hhl_tusb_stop();
  }
-@@ -248,6 +282,12 @@ bool transport_usb_init(core_params_s *params)
+@@ -248,6 +276,11 @@ bool transport_usb_init(core_params_s *params)
  
      hhl_tusb_init(&tcfg);
  
-+    // A report every frame: late-latch it. Slower paces (a console's 8 ms) stay as they are.
 +    if (_usb_frames == 1)
 +        latch_usb_start();
 +    else
@@ -409,12 +335,10 @@ index e0d98c9..2d94cdd 100644
      return hhl_tusb_start();
  }
  
-@@ -272,6 +312,20 @@ void transport_usb_task(uint64_t timestamp)
+@@ -272,6 +305,17 @@ void transport_usb_task(uint64_t timestamp)
          _usb_ready = hhl_tusb_report_ready();
      }
  
-+    // Late-latch: start the read for the host's next poll (the cycle restarts on the next pass,
-+    // reads the input, and the report is armed just ahead of the poll)
 +    if ((_usb_frames == 1) && latch_usb_due())
 +    {
 +        _usb_hal_trigger();
@@ -422,7 +346,6 @@ index e0d98c9..2d94cdd 100644
 +
 +    if (_usb_sendit && !_usb_ready && latch_usb_endpoint_busy())
 +    {
-+        // Late-latch: the previous report missed its poll; this one goes with the next read
 +        _usb_sendit = false;
 +        _usb_due_pending = false;
 +    }
@@ -430,11 +353,10 @@ index e0d98c9..2d94cdd 100644
      if (_usb_sendit && _usb_ready)
      {
          if (!tasks_get_required_done())
-@@ -279,6 +333,13 @@ void transport_usb_task(uint64_t timestamp)
+@@ -279,6 +323,12 @@ void transport_usb_task(uint64_t timestamp)
              return;
          }
  
-+        // The read this report is for has not finished yet
 +        if (_usb_due_pending && ((int32_t)(latch_input_read_us() - _usb_due_us) < 0))
 +        {
 +            return;
@@ -444,7 +366,7 @@ index e0d98c9..2d94cdd 100644
          _usb_sendit = false;
          _usb_ready = false;
  
-@@ -286,6 +347,7 @@ void transport_usb_task(uint64_t timestamp)
+@@ -286,6 +336,7 @@ void transport_usb_task(uint64_t timestamp)
          {
              if (hhl_tusb_report_send(_core_report.data[0], &_core_report.data[1], _core_report.size - 1))
              {
@@ -453,7 +375,7 @@ index e0d98c9..2d94cdd 100644
                  hhl_tusb_task();
              }
 diff --git a/src/input/hover.c b/src/input/hover.c
-index d39c952..2b8ed31 100644
+index d39c952..8e4b47d 100644
 --- a/src/input/hover.c
 +++ b/src/input/hover.c
 @@ -5,6 +5,7 @@
@@ -464,17 +386,16 @@ index d39c952..2b8ed31 100644
  
  #include <string.h>
  
-@@ -399,7 +400,8 @@ void hover_task(uint64_t timestamp)
+@@ -399,7 +400,7 @@ void hover_task(uint64_t timestamp)
  {
      mapper_input_s input = {0};
      
 -    // Perform a reading
-+    // Perform a reading (timed: the late-latch schedules reads by how long they take)
 +    latch_input_read_begin();
      cb_hoja_read_input(&input);
  
      // Tournament mode
-@@ -525,4 +527,5 @@ void hover_task(uint64_t timestamp)
+@@ -525,4 +526,5 @@ void hover_task(uint64_t timestamp)
  #endif
  
      snapshot_hover_write(&_hover_snap, &input);
@@ -482,7 +403,7 @@ index d39c952..2b8ed31 100644
  }
 \ No newline at end of file
 diff --git a/src/input/macros.c b/src/input/macros.c
-index 0b7d7c1..44b25d6 100644
+index 0b7d7c1..1423123 100644
 --- a/src/input/macros.c
 +++ b/src/input/macros.c
 @@ -4,6 +4,7 @@
@@ -493,11 +414,10 @@ index 0b7d7c1..44b25d6 100644
  
  #include "board_config.h"
  
-@@ -16,6 +17,9 @@ void macros_task(uint64_t timestamp)
+@@ -16,6 +17,8 @@ void macros_task(uint64_t timestamp)
      mapper_input_s input = {0};
      hover_access_safe(&input);
  
-+    // techchase: first, so Power held for its combo is never taken as a shutdown
 +    macro_quick_remap(timestamp, &input);
 +
      // Disabled when hoja_config_s.shipping_macro_code[0] is INPUT_CODE_UNUSED.
@@ -505,12 +425,10 @@ index 0b7d7c1..44b25d6 100644
  
 diff --git a/src/input/macros/macro_quick_remap.c b/src/input/macros/macro_quick_remap.c
 new file mode 100644
-index 0000000..2819838
+index 0000000..466320b
 --- /dev/null
 +++ b/src/input/macros/macro_quick_remap.c
-@@ -0,0 +1,301 @@
-+// techchase: Quick Remap on the controller. See input/macros/macro_quick_remap.h for the flow.
-+
+@@ -0,0 +1,291 @@
 +#include "input/macros/macro_quick_remap.h"
 +
 +#include <string.h>
@@ -534,8 +452,8 @@ index 0000000..2819838
 +typedef enum
 +{
 +    QR_IDLE,
-+    QR_ARMING,      // Combo held, counting
-+    QR_SETTLE,      // On; waiting for every button to come up before picking
++    QR_ARMING,
++    QR_SETTLE,
 +    QR_PICK_SRC,
 +    QR_PICK_TARGET,
 +} qr_state_t;
@@ -550,9 +468,7 @@ index 0000000..2819838
 +static bool     _mod_was_down = false;
 +static volatile bool _block_until_mod_up = false;
 +
-+// --- Board inputs ---
-+
-+static int8_t _mod_code = -2; // -2: not looked up yet
++static int8_t _mod_code = -2;
 +static bool   _candidate[MAPPER_INPUT_COUNT];
 +
 +static void _lookup(void)
@@ -594,8 +510,6 @@ index 0000000..2819838
 +    return false;
 +}
 +
-+// --- Rumble ticks ---
-+
 +static uint8_t  _ticks_left = 0;
 +static bool     _tick_on = false;
 +static uint64_t _tick_next_us = 0;
@@ -628,8 +542,6 @@ index 0000000..2819838
 +    }
 +}
 +
-+// --- Flow ---
-+
 +static void _qr_enter(uint64_t now)
 +{
 +    _st = QR_SETTLE;
@@ -653,7 +565,6 @@ index 0000000..2819838
 +
 +static void _store(void)
 +{
-+    // Stored right away: unplugging mid-session keeps every change made so far
 +    settings_commit_blocks();
 +}
 +
@@ -737,7 +648,6 @@ index 0000000..2819838
 +                _t_activity = now;
 +            }
 +
-+            // Start held 3 s: everything back to default; its release is not a pick
 +            if (d && (c == INPUT_CODE_START) && !_ignore_release[c] && ((now - _down_at[c]) >= QR_RESET_ALL_HOLD_US))
 +            {
 +                mapper_quick_reset_all();
@@ -755,7 +665,7 @@ index 0000000..2819838
 +                if (_ignore_release[c])
 +                    _ignore_release[c] = false;
 +                else if (released < 0)
-+                    released = (int8_t)c; // A button counts when it comes back up
++                    released = (int8_t)c;
 +            }
 +            _down[c] = d;
 +        }
@@ -811,7 +721,7 @@ index 0000000..2819838
 +    _store();
 +}
 diff --git a/src/input/macros/macro_shutdown.c b/src/input/macros/macro_shutdown.c
-index 406247d..1677cdd 100644
+index 406247d..a5e05b8 100644
 --- a/src/input/macros/macro_shutdown.c
 +++ b/src/input/macros/macro_shutdown.c
 @@ -1,6 +1,7 @@
@@ -822,11 +732,10 @@ index 406247d..1677cdd 100644
  
  #define SHUTDOWN_HOLD_TIME 3 // Seconds
  #define SHUTDOWN_HOLD_US   ((uint64_t)SHUTDOWN_HOLD_TIME * 1000000ULL)
-@@ -83,6 +84,13 @@ void macro_shutdown(uint64_t timestamp, mapper_input_s *input)
+@@ -83,6 +84,12 @@ void macro_shutdown(uint64_t timestamp, mapper_input_s *input)
          return;
      }
  
-+    // Power with another button (Quick Remap's combo), or while Quick Remap is on: not a shutdown
 +    if (macro_quick_remap_blocks_shutdown(input))
 +    {
 +        hold_start_us = 0;
@@ -837,7 +746,7 @@ index 406247d..1677cdd 100644
      {
          if (hold_start_us == 0)
 diff --git a/src/input/mapper.c b/src/input/mapper.c
-index 0a03cca..7afadc4 100644
+index 0a03cca..8c3459f 100644
 --- a/src/input/mapper.c
 +++ b/src/input/mapper.c
 @@ -6,6 +6,7 @@
@@ -848,17 +757,11 @@ index 0a03cca..7afadc4 100644
  
  #include "input/analog.h"
  
-@@ -988,6 +989,156 @@ static void _mapper_set_all_wii_defaults(void)
+@@ -988,6 +989,145 @@ static void _mapper_set_all_wii_defaults(void)
      input_config->wii_profile_version = CFG_INPUT_WII_PROFILE_VERSION;
  }
  
-+// ---------------------------------------------------------------------------------------------
-+// techchase: Quick Remap. One change is written to every mode's profile, so "Z does what X
-+// does" means the same on Switch, Slippi and PC. Targets are a button's DEFAULT job, so a swap is
-+// two steps in either order, and chains never drift.
-+// ---------------------------------------------------------------------------------------------
 +
-+// Run once per remap, not per report: kept in flash (the rest of this file runs from RAM)
 +
 +typedef struct
 +{
@@ -884,8 +787,6 @@ index 0a03cca..7afadc4 100644
 +    return n;
 +}
 +
-+// Slot `dst` set as _mapper_set_defaults would set it, but with input `from`'s default output
-+// (from < 0: nothing)
 +__in_flash("mapper_quick") static void _mapper_slot_default_from(const _mapper_profile_ref_s *p, int dst, int from)
 +{
 +    inputConfigSlot_s *slot = &p->slots[dst];
@@ -940,7 +841,6 @@ index 0a03cca..7afadc4 100644
 +    }
 +}
 +
-+// A trigger click's analog half, where the board has one
 +__in_flash("mapper_quick") static int _mapper_trigger_analog(int code)
 +{
 +    int analog = -1;
@@ -965,8 +865,6 @@ index 0a03cca..7afadc4 100644
 +    for(uint8_t i = 0; i < n; i++)
 +    {
 +        _mapper_slot_default_from(&refs[i], src, target);
-+        // R mapped to L: R's analog gives L's analog (light shield). R mapped to Z: R's analog off,
-+        // or a half press would still shield
 +        if(src_analog >= 0)
 +            _mapper_slot_default_from(&refs[i], src_analog, target_analog);
 +    }
@@ -1005,19 +903,17 @@ index 0a03cca..7afadc4 100644
  void _set_raw_output_profile(core_reportformat_t format)
  {
      _translated_op.remap_en = false;
-@@ -1407,7 +1558,9 @@ mapper_input_s mapper_get_input()
+@@ -1407,7 +1547,7 @@ mapper_input_s mapper_get_input()
      // The game's path: also held while the app holds the game's input
      if (_mapper_hold_game && (sys_hal_now_us() - _mapper_app_heard_us) > MAPPER_HOLD_SILENCE_US)
          _mapper_hold_game = false;
 -    if (_mapper_neutral || _mapper_hold_game)
-+    // ...and while Quick Remap is on or its combo is held. Checked on every report, so the combo's
-+    // Start never reaches the game when Power goes down first.
 +    if (_mapper_neutral || _mapper_hold_game || macro_quick_remap_game_hold(&hovers))
      {
          // The game sees the pad at rest, but a hand on it still keeps the idle timer off: the mapper's
          // heartbeat below only sees this pass, and not every app view runs the app's own pass
 diff --git a/src/usb/webusb.c b/src/usb/webusb.c
-index 9288855..935ca91 100644
+index 9288855..98c5bba 100644
 --- a/src/usb/webusb.c
 +++ b/src/usb/webusb.c
 @@ -18,6 +18,10 @@
@@ -1031,16 +927,10 @@ index 9288855..935ca91 100644
  
  #include "hhl_tusb.h"
  
-@@ -144,6 +148,52 @@ void webusb_send_bulk(const uint8_t *data, uint16_t size)
+@@ -144,6 +148,46 @@ void webusb_send_bulk(const uint8_t *data, uint16_t size)
      }
  }
  
-+// techchase: the live view's report. After the shared header (bytes 1 to 14), big-endian u16s:
-+//   [15..22] lx ly rx ry as the game gets them (after snapback and deadzone), centered on 2048
-+//   [23..30] lx ly rx ry calibrated, before snapback and deadzone, centered on 2048
-+//   [31..35] presses, bit n = input code n (INPUT_CODE_*), little-endian
-+//   [36..39] LT and RT analog, 0 to 4095
-+//   [40]     a counter, +1 per report, so the app sees dropped reports
 +static void _webusb_put_u16be(uint8_t *at, int32_t value)
 +{
 +    uint16_t v = (uint16_t)(value < 0 ? 0 : (value > 0xFFFF ? 0xFFFF : value));
@@ -1084,7 +974,7 @@ index 9288855..935ca91 100644
  #define CLAMP_0_255(value) ((value) < 0 ? 0 : ((value) > 255 ? 255 : (value)))
  void webusb_send_rawinput(uint64_t timestamp)
  {
-@@ -246,6 +296,10 @@ void webusb_send_rawinput(uint64_t timestamp)
+@@ -246,6 +290,10 @@ void webusb_send_rawinput(uint64_t timestamp)
                  webusb_input_report[29] = (ry & 0xFF00) >> 8;
                  webusb_input_report[30] = (ry & 0xFF);
              break;
@@ -1095,20 +985,19 @@ index 9288855..935ca91 100644
          }
  
          if (!_webusb_sink->send_input(webusb_input_report, 64))
-@@ -297,6 +351,112 @@ static void _webusb_send_fingerprints(void)
+@@ -297,6 +345,110 @@ static void _webusb_send_fingerprints(void)
      }
  }
  
-+// --- techchase commands (WEBUSB_ID_TECHCHASE). Replies: [0xC0][cmd][...], 64 bytes. ---
 +#define TC_PROTO           1
-+#define TC_CMD_INFO        0 // -> proto, latch on, latch mode, report format, quick remap on
-+#define TC_CMD_STATS       1 // -> latch_stats_s
++#define TC_CMD_INFO        0
++#define TC_CMD_STATS       1
 +#define TC_CMD_STATS_RESET 2
-+#define TC_CMD_LATCH       3 // [on]
-+#define TC_CMD_ASSIGN      4 // [src][target] -> ok
-+#define TC_CMD_RESET_ALL   5 // -> ok
-+#define TC_CMD_MAP         6 // [page] -> page, count, count x {input, gc now, gc default, sw now, sw default, name[8]}
-+#define TC_CMD_USB_MODE    7 // [core_reportformat_t] -> ok
++#define TC_CMD_LATCH       3
++#define TC_CMD_ASSIGN      4
++#define TC_CMD_RESET_ALL   5
++#define TC_CMD_MAP         6
++#define TC_CMD_USB_MODE    7
 +#define TC_MAP_PER_PAGE    4
 +
 +static void _webusb_techchase(const uint8_t *data, uint32_t size)
@@ -1194,7 +1083,6 @@ index 9288855..935ca91 100644
 +    case TC_CMD_USB_MODE:
 +        if (size < 3)
 +            return;
-+        // The reply goes first: the mode changes ~20 ms later, re-enumerating the device
 +        out[2] = hoja_request_usb_mode((core_reportformat_t)(int8_t)data[2]) ? 1 : 0;
 +        break;
 +
@@ -1208,7 +1096,7 @@ index 9288855..935ca91 100644
  void webusb_command_handler(uint8_t *data, uint32_t size)
  {
      // The app's motion view wants standard IMU data. Through the dongle or BLE a game may be using
-@@ -358,6 +518,10 @@ void webusb_command_handler(uint8_t *data, uint32_t size)
+@@ -358,6 +510,10 @@ void webusb_command_handler(uint8_t *data, uint32_t size)
              // Do nothing
          break;
  
@@ -1221,12 +1109,10 @@ index 9288855..935ca91 100644
          {
 diff --git a/src/utilities/latch.c b/src/utilities/latch.c
 new file mode 100644
-index 0000000..cbb1ebe
+index 0000000..6e42c60
 --- /dev/null
 +++ b/src/utilities/latch.c
-@@ -0,0 +1,670 @@
-+// Input late-latch (techchase). See utilities/latch.h for the idea.
-+
+@@ -0,0 +1,626 @@
 +#include "utilities/latch.h"
 +
 +#include <string.h>
@@ -1241,20 +1127,18 @@ index 0000000..cbb1ebe
 +#define LATCH_HAS_USB_DPRAM 0
 +#endif
 +
-+// a at or after b, wrap-safe
 +#define AT_OR_AFTER(a, b) ((int32_t)((uint32_t)(a) - (uint32_t)(b)) >= 0)
 +
-+// --- Tuning ---
 +#define USB_FRAME_US          1000u
-+#define USB_PHASE_LEARN_N     32u    // Takes measured before the schedule takes over
++#define USB_PHASE_LEARN_N     32u
 +#define USB_GUARD_INIT_US     120u
-+#define USB_GUARD_MIN_US      60u    // Covers IN token -> IN complete interrupt (~30-40 us)
++#define USB_GUARD_MIN_US      60u
 +#define USB_GUARD_MAX_US      500u
 +#define USB_GUARD_MISS_STEP   40u
-+#define USB_READY_CAP_US      900u   // A read+arm longer than this was a stall, not the norm
-+#define USB_TAKE_SLOW_US      1300u  // Host polling slower than every frame: stay stock
++#define USB_READY_CAP_US      900u
++#define USB_TAKE_SLOW_US      1300u
 +
-+#define JB_LOCK_N             8u     // Steady polls in a row before locking
++#define JB_LOCK_N             8u
 +#define JB_PERIOD_MIN_US      300u
 +#define JB_PERIOD_MAX_US      50000u
 +#define JB_GUARD_INIT_US      80u
@@ -1262,12 +1146,10 @@ index 0000000..cbb1ebe
 +#define JB_GUARD_MAX_US       400u
 +#define JB_GUARD_MISS_STEP    20u
 +
-+#define READY_DEFAULT_US      200u   // Read -> ready, before any measurement
-+#define GOOD_RUN_SHRINK       2000u  // Hand-offs on time in a row before the guard shrinks
++#define READY_DEFAULT_US      200u
++#define GOOD_RUN_SHRINK       2000u
 +#define GUARD_SHRINK_STEP     5u
 +
-+// Largest of a value over the last 1000..2000 samples: tracks the worst normal case, forgets a
-+// one-off stall within a couple of seconds
 +typedef struct
 +{
 +    uint32_t cur;
@@ -1312,17 +1194,11 @@ index 0000000..cbb1ebe
 +    return _enabled;
 +}
 +
-+// ---------------------------------------------------------------------------------------------
-+// Input read
-+// ---------------------------------------------------------------------------------------------
-+
 +static volatile uint32_t _read_begin_us = 0;
 +static volatile uint32_t _read_done_start_us = 0;
 +static volatile uint32_t _read_dur_us = 0;
 +static volatile uint32_t _read_max_us = 0;
 +
-+// A scheduled read was triggered and has not started: the task loop holds everything optional
-+// until it does (a task slipped in between would push the read past its hand-off)
 +static volatile bool     _read_pending = false;
 +static volatile uint32_t _read_pending_at = 0;
 +
@@ -1353,10 +1229,6 @@ index 0000000..cbb1ebe
 +    return _read_done_start_us;
 +}
 +
-+// ---------------------------------------------------------------------------------------------
-+// Stats (hand-offs are counted in interrupt context)
-+// ---------------------------------------------------------------------------------------------
-+
 +static volatile latch_mode_t _mode = LATCH_MODE_OFF;
 +static volatile uint32_t _st_count = 0;
 +static volatile uint32_t _st_min = UINT32_MAX;
@@ -1372,7 +1244,6 @@ index 0000000..cbb1ebe
 +
 +static void __not_in_flash_func(_stat_add)(uint32_t age)
 +{
-+    // An age over 100 ms is a stall or a fresh start, not a hand-off worth averaging
 +    if (age > 100000u)
 +        return;
 +    _st_count++;
@@ -1428,34 +1299,30 @@ index 0000000..cbb1ebe
 +    return _winmax(&_ready) + _guard_us;
 +}
 +
-+// ---------------------------------------------------------------------------------------------
-+// USB
-+// ---------------------------------------------------------------------------------------------
-+
 +static volatile bool     _usb_on = false;
 +static volatile uint32_t _sof_us = 0;
 +static volatile bool     _sof_valid = false;
 +
-+static volatile int8_t   _usb_ep = -1;          // The game report's IN endpoint, learned on first arm
-+static volatile bool     _usb_armed = false;    // A report sits in the endpoint
++static volatile int8_t   _usb_ep = -1;
++static volatile bool     _usb_armed = false;
 +static volatile uint32_t _usb_armed_input_us = 0;
 +static volatile uint32_t _usb_armed_target_us = 0;
 +static volatile bool     _usb_armed_has_target = false;
 +
-+static volatile int32_t  _usb_phase_us = 0;     // Host IN-complete offset after SOF
++static volatile int32_t  _usb_phase_us = 0;
 +static volatile uint32_t _usb_phase_n = 0;
 +static volatile uint32_t _usb_last_take_us = 0;
-+static volatile uint32_t _usb_take_interval_us = USB_FRAME_US; // Smoothed
++static volatile uint32_t _usb_take_interval_us = USB_FRAME_US;
 +static volatile bool     _usb_have_take = false;
 +
-+static uint32_t _usb_next_take_us = 0;          // The take the next read is for
++static uint32_t _usb_next_take_us = 0;
 +static bool     _usb_next_valid = false;
-+static uint32_t _usb_cur_target_us = 0;         // The take the newest read is for
++static uint32_t _usb_cur_target_us = 0;
 +static bool     _usb_cur_target_valid = false;
 +static uint32_t _usb_trig_us = 0;
 +static bool     _usb_trig_valid = false;
-+static bool     _usb_trig_busy = false;          // The endpoint was busy for this trigger's report
-+static bool     _usb_trig_late = false;          // Noticed late (the loop was held up): a stall
++static bool     _usb_trig_busy = false;
++static bool     _usb_trig_late = false;
 +
 +void latch_usb_start(void)
 +{
@@ -1494,7 +1361,6 @@ index 0000000..cbb1ebe
 +    _sof_valid = true;
 +}
 +
-+// The host took the armed report at t (interrupt context, or the task with interrupts off)
 +static void _usb_take(uint32_t t)
 +{
 +    _usb_armed = false;
@@ -1503,12 +1369,9 @@ index 0000000..cbb1ebe
 +
 +    if (_usb_armed_has_target)
 +    {
-+        // Taken more than half a frame after the poll it was read for: it waited a whole frame
 +        _stat_on_time((int32_t)(t - _usb_armed_target_us) <= (int32_t)(USB_FRAME_US / 2));
 +    }
 +
-+    // Host poll phase within the frame, smoothed on the circle (an offset near 0 and one near
-+    // 1000 are neighbours)
 +    if (_sof_valid)
 +    {
 +        const uint32_t ph = t - _sof_us;
@@ -1553,7 +1416,6 @@ index 0000000..cbb1ebe
 +    const int8_t ep = _usb_ep;
 +    if (!_usb_armed || ep <= 0)
 +        return;
-+    // Another endpoint's transfer: ours is still waiting
 +    if (usb_dpram->ep_buf_ctrl[ep].in & USB_BUF_CTRL_AVAIL)
 +        return;
 +    _usb_take(time_us_32());
@@ -1568,9 +1430,6 @@ index 0000000..cbb1ebe
 +
 +    const uint32_t now = time_us_32();
 +
-+    // Read start -> report armed: the time a read needs ahead of its poll
-+    // A read held up by a long task (a flash write) is a stall: it neither stretches the lead for
-+    // every report after it nor widens the guard (its age still counts in the stats)
 +    const bool busy = _usb_trig_busy;
 +    bool stalled = false;
 +    if (_usb_trig_valid && !busy)
@@ -1586,8 +1445,6 @@ index 0000000..cbb1ebe
 +    int8_t ep = _usb_ep;
 +    if (ep <= 0)
 +    {
-+        // The endpoint just armed is the one waiting for the host. More than one waiting (the
-+        // config app's endpoint too) leaves it for the next report.
 +        int8_t found = -1;
 +        uint8_t n = 0;
 +        for (int8_t i = 1; i < 16; i++)
@@ -1609,7 +1466,6 @@ index 0000000..cbb1ebe
 +    _usb_armed_has_target = _usb_cur_target_valid && !busy && !stalled;
 +    _usb_cur_target_valid = false;
 +    _usb_armed = true;
-+    // Taken already, between the send and here: its interrupt saw nothing armed
 +    if (!(usb_dpram->ep_buf_ctrl[ep].in & USB_BUF_CTRL_AVAIL))
 +        _usb_take(now);
 +    restore_interrupts(save);
@@ -1623,7 +1479,6 @@ index 0000000..cbb1ebe
 +    _usb_trig_busy = true;
 +    if (!_usb_trig_valid || (_mode != LATCH_MODE_USB_LATE))
 +        return false;
-+    // Dropped: nothing measured for it
 +    _usb_trig_valid = false;
 +    _usb_cur_target_valid = false;
 +    return true;
@@ -1647,11 +1502,10 @@ index 0000000..cbb1ebe
 +
 +    const uint32_t now = time_us_32();
 +    const uint32_t lead = _lead_us();
-+    const uint32_t predicted = _sof_us + (uint32_t)_usb_phase_us; // This frame's take (may be past)
++    const uint32_t predicted = _sof_us + (uint32_t)_usb_phase_us;
 +
 +    if (_usb_next_valid)
 +    {
-+        // Follow the prediction: the host's clock and ours drift apart a little every frame
 +        int32_t d = (int32_t)(predicted - _usb_next_take_us) % (int32_t)USB_FRAME_US;
 +        if (d >= (int32_t)(USB_FRAME_US / 2))
 +            d -= (int32_t)USB_FRAME_US;
@@ -1659,7 +1513,6 @@ index 0000000..cbb1ebe
 +            d += (int32_t)USB_FRAME_US;
 +        _usb_next_take_us += (uint32_t)d;
 +
-+        // Fell more than a frame behind (a long stall): start over from the next take in reach
 +        if ((int32_t)(now - _usb_next_take_us) > (int32_t)USB_FRAME_US)
 +            _usb_next_valid = false;
 +    }
@@ -1689,10 +1542,6 @@ index 0000000..cbb1ebe
 +    return true;
 +}
 +
-+// ---------------------------------------------------------------------------------------------
-+// Joybus
-+// ---------------------------------------------------------------------------------------------
-+
 +static volatile bool     _jb_on = false;
 +static volatile uint32_t _jb_last_poll_us = 0;
 +static volatile bool     _jb_have_poll = false;
@@ -1702,7 +1551,7 @@ index 0000000..cbb1ebe
 +
 +static volatile uint32_t _jb_snap_input_us = 0;
 +static volatile bool     _jb_snap_valid = false;
-+static volatile uint32_t _jb_meant_start_us = 0;   // The read scheduled for the coming poll began
++static volatile uint32_t _jb_meant_start_us = 0;
 +static volatile bool     _jb_meant_valid = false;
 +static uint32_t _jb_trig_us = 0;
 +static bool     _jb_trig_valid = false;
@@ -1767,7 +1616,6 @@ index 0000000..cbb1ebe
 +    if (_jb_snap_valid)
 +    {
 +        _stat_add(poll_us - _jb_snap_input_us);
-+        // A read was scheduled for this poll: did it make it into the answer?
 +        if (_jb_meant_valid)
 +            _stat_on_time(AT_OR_AFTER(_jb_snap_input_us, _jb_meant_start_us));
 +    }
@@ -1784,7 +1632,7 @@ index 0000000..cbb1ebe
 +        if (d <= 2u * _winmax(&_ready) + 50u)
 +            _winmax_add(&_ready, d);
 +        else
-+            _jb_meant_valid = false; // Stalled: not the schedule's miss
++            _jb_meant_valid = false;
 +        _jb_trig_valid = false;
 +    }
 +    _jb_snap_input_us = input_us;
@@ -1805,7 +1653,6 @@ index 0000000..cbb1ebe
 +{
 +    const uint32_t period = _jb_period_us;
 +    uint32_t t = _jb_last_poll_us + period;
-+    // Polls skipped (paused game, a reset): aim at the next one on the same rhythm
 +    uint8_t guard = 0;
 +    while ((int32_t)(now - t) > (int32_t)(period / 2) && guard++ < 64)
 +        t += period;
@@ -1827,15 +1674,12 @@ index 0000000..cbb1ebe
 +
 +    _jb_trig_since_poll = true;
 +    _jb_meant_start_us = now;
-+    // Noticed late (the loop was held up): a stall, not the schedule's miss
 +    _jb_meant_valid = (now - start) <= (uint32_t)(_guard_us / 2);
 +    _jb_trig_us = now;
 +    _jb_trig_valid = true;
 +    _read_trigger(now);
 +    return true;
 +}
-+
-+// ---------------------------------------------------------------------------------------------
 +
 +uint32_t latch_next_start_us(bool *valid, uint32_t *period_us)
 +{
@@ -1874,7 +1718,7 @@ index 0000000..cbb1ebe
 +    restore_interrupts(save);
 +
 +    out->version = LATCH_STATS_VERSION;
-+    out->mode = (uint8_t)_mode | (_enabled ? 0 : 0x80); // Top bit: switched off (stock timing)
++    out->mode = (uint8_t)_mode | (_enabled ? 0 : 0x80);
 +    out->guard_us = _guard_us;
 +    out->age_avg_us = count ? (uint32_t)(sum / count) : 0;
 +    out->lead_us = _lead_us();
@@ -1896,7 +1740,7 @@ index 0000000..cbb1ebe
 +    }
 +}
 diff --git a/src/utilities/tasks.c b/src/utilities/tasks.c
-index a352ca1..2475701 100644
+index a352ca1..2a2cb8e 100644
 --- a/src/utilities/tasks.c
 +++ b/src/utilities/tasks.c
 @@ -1,5 +1,6 @@
@@ -1906,17 +1750,13 @@ index a352ca1..2475701 100644
  #include <stddef.h>
  #include <string.h>
  
-@@ -81,6 +82,39 @@ static bool _tasks_deadline_allows(const task_s *task, uint64_t now_us)
+@@ -81,6 +82,33 @@ static bool _tasks_deadline_allows(const task_s *task, uint64_t now_us)
      return task->max_runtime_us + TASKS_DEADLINE_MARGIN_US < left;
  }
  
-+// techchase: the late-latch's next scheduled input read. A task that could still be running
-+// when it is due waits a pass; the read itself (required) and the transports (rapid) never wait.
 +#define TASKS_LATCH_MARGIN_US 20
 +#define TASKS_LATCH_STALE_US  300
 +
-+// Runs over 5 ms are one-offs (a flash erase) that waiting a pass cannot help; they would only
-+// keep the task from ever fitting
 +static inline void _tasks_latch_note(task_s *task, uint64_t runtime_us)
 +{
 +    if (runtime_us < 5000u && runtime_us > task->latch_runtime_us)
@@ -1932,12 +1772,10 @@ index a352ca1..2475701 100644
 +        return true;
 +    const int32_t left = (int32_t)(start - (uint32_t)now_us);
 +    if (left <= 0)
-+        return left < -TASKS_LATCH_STALE_US; // Due now: the read goes first
++        return left < -TASKS_LATCH_STALE_US;
 +    const uint32_t need = task->latch_runtime_us + TASKS_LATCH_MARGIN_US;
 +    if (need < (uint32_t)left)
 +        return true;
-+    // Too long for any gap (a flash write): it goes early in one, right after a report, and costs
-+    // at most that one late report, as it always did. Waiting for a gap it fits would starve it.
 +    if (need >= period / 2)
 +        return (uint32_t)left > period / 2;
 +    return false;
@@ -1946,7 +1784,7 @@ index a352ca1..2475701 100644
  void tasks_mark_shutdown(void)
  {
      _tasks_shutdown_lock = true;
-@@ -176,6 +210,7 @@ static bool _tasks_force_run(task_s *task, bool update_max_runtime)
+@@ -176,6 +204,7 @@ static bool _tasks_force_run(task_s *task, bool update_max_runtime)
      uint64_t end_us = sys_hal_now_us();
      task->last_run_us = start_us;
      TASKS_DIAG_NOTE(task, end_us - start_us);
@@ -1954,7 +1792,7 @@ index a352ca1..2475701 100644
  
      if(!update_max_runtime) return true;
  
-@@ -211,6 +246,11 @@ static void _tasks_optional_run(task_s *optional_tasks[TASKS_MAX_COUNT], uint8_t
+@@ -211,6 +240,11 @@ static void _tasks_optional_run(task_s *optional_tasks[TASKS_MAX_COUNT], uint8_t
              continue;
          }
  
@@ -1966,7 +1804,7 @@ index a352ca1..2475701 100644
          uint64_t d = now_us - (candidate->last_run_us + candidate->optional_interval_us);
          if(d > max_delta)
          {
-@@ -287,6 +327,8 @@ static bool _tasks_try_run(task_s *task, bool update_max_runtime)
+@@ -287,6 +321,8 @@ static bool _tasks_try_run(task_s *task, bool update_max_runtime)
  
      if(!_tasks_deadline_allows(task, start_us)) return false;
  
@@ -1975,7 +1813,7 @@ index a352ca1..2475701 100644
      // Confirm there's enough budget remaining
      // Return if not enough time remaining
      if(start_us + task->max_runtime_us >= _tasks_sm.cycle_deadline_us) return false;
-@@ -296,6 +338,7 @@ static bool _tasks_try_run(task_s *task, bool update_max_runtime)
+@@ -296,6 +332,7 @@ static bool _tasks_try_run(task_s *task, bool update_max_runtime)
      uint64_t end_us = sys_hal_now_us();
      task->last_run_us = start_us;
      TASKS_DIAG_NOTE(task, end_us - start_us);
@@ -1983,7 +1821,7 @@ index a352ca1..2475701 100644
  
      // Optionally update max runtime of the task
      if(!update_max_runtime) return true;
-@@ -323,6 +366,7 @@ static void _task_try_add(task_s *task_list[TASKS_MAX_COUNT], uint8_t *task_coun
+@@ -323,6 +360,7 @@ static void _task_try_add(task_s *task_list[TASKS_MAX_COUNT], uint8_t *task_coun
  
      task_list[*task_count] = task;
      task->max_runtime_us = TASKS_DEFAULT_RUNTIME_US;

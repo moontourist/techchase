@@ -7,14 +7,11 @@ import { createLive } from './live.js';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-// --- Names for jobs ---
-
 const GC_LABEL = {
   A: 'A', B: 'B', X: 'X', Y: 'Y', Z: 'Z', L: 'L', R: 'R', ZL: 'ZL', START: 'Start',
   UP: 'D-pad Up', DOWN: 'D-pad Down', LEFT: 'D-pad Left', RIGHT: 'D-pad Right',
   MINUS: 'Minus', HOME: 'Home', CAPTURE: 'Capture', C: 'C', LS: 'Left stick click', RS: 'C-stick click',
 };
-// Smash's default GameCube-controller jobs (Ultimate and Melee agree on these)
 const SMASH_LABEL = {
   A: 'Attack', B: 'Special', X: 'Jump', Y: 'Jump', Z: 'Grab', L: 'Shield', R: 'Shield', START: 'Pause',
   UP: 'Up taunt', DOWN: 'Down taunt', LEFT: 'Side taunt', RIGHT: 'Side taunt',
@@ -25,7 +22,6 @@ const SW_LABEL = {
   LS: 'L-stick click', RS: 'R-stick click',
 };
 const swLabel = (c) => { const n = codeName(SW_CODES, c); return n ? (SW_LABEL[n] || n) : null; };
-// Jobs in GameCube order: face buttons, Z and shoulders, Start, D-pad, then the extras
 const JOB_ORDER = ['A', 'B', 'X', 'Y', 'Z', 'L', 'R', 'START', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'ZL', 'C', 'MINUS', 'HOME', 'CAPTURE', 'LS', 'RS'];
 const jobRank = (gc) => { const i = JOB_ORDER.indexOf(codeName(GC_CODES, gc)); return i < 0 ? 99 : i; };
 
@@ -35,7 +31,7 @@ const state = {
   info: null,
   devInfo: null,
   labels: localStorage.getItem('gcu.labels') || 'smash',
-  selected: null, // input code
+  selected: null,
   busy: false,
   live: null,
   unsubLive: null,
@@ -50,8 +46,6 @@ function jobLabel(gcCode, { both = false } = {}) {
   if (state.labels === 'smash') return s ? (both ? `${s} (${g})` : s) : g;
   return both && s ? `${g} · ${s}` : g;
 }
-
-// --- Toast ---
 
 let toastTimer;
 function toast(msg, kind = '') {
@@ -77,8 +71,6 @@ async function guard(fn, what) {
   }
 }
 
-// --- Connection ---
-
 const FILTERS = [{ vendorId: 0x057E, classCode: 0xFF }, { vendorId: 0x2E8A, classCode: 0xFF }];
 
 async function attach(dev) {
@@ -88,7 +80,6 @@ async function attach(dev) {
   state.info = await dev.info();
   liveView.reset();
   state.unsubLive = dev.onLive((rep) => liveView.push(rep));
-  // Firmware without the techchase report keeps streaming its 7-bit view, which the live tab also reads
   await dev.setLiveMode(LIVE.TECHCHASE);
   await refreshMap();
   renderConnection();
@@ -103,7 +94,7 @@ async function connect() {
   try {
     usbDev = await navigator.usb.requestDevice({ filters: FILTERS });
   } catch {
-    return; // chooser closed
+    return;
   }
   await guard(() => attach(new GcuDevice(usbDev)), 'Could not connect');
 }
@@ -169,20 +160,16 @@ $('#connectBtn').addEventListener('click', async () => {
   }
 });
 
-// --- Tabs ---
-
 function currentTab() { return $('.tabs [aria-selected="true"]').dataset.tab; }
 function showTab(name) {
   for (const b of $$('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
   for (const s of $$('.tab')) s.hidden = !state.dev || s.id !== `tab-${name}`;
   if (name !== 'latency') stopLive();
   if (name === 'profiles') renderProfiles();
-  if (name === 'controls' && state.dev) renderControls(); // tag positions need the picture on screen
+  if (name === 'controls' && state.dev) renderControls();
   if (name === 'live' && state.dev) liveView.start(); else liveView.stop();
 }
 for (const b of $$('.tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
-
-// --- Controls ---
 
 async function refreshMap() {
   state.entries = await state.dev.map();
@@ -195,7 +182,6 @@ function renderControls() {
   const editable = new Map(remappable(state.entries).map((e) => [e.name, e]));
   const byName = new Map(state.entries.map((e) => [e.name, e]));
 
-  // The picture
   for (const g of $$('#pad .btn')) {
     const name = g.dataset.name;
     const e = editable.get(name);
@@ -209,7 +195,6 @@ function renderControls() {
     g.setAttribute('aria-label', e ? `${name}: ${jobLabel(e.gcCur)}` : `${name}${known ? '' : ' (not on this controller)'}`);
   }
 
-  // What each changed button does now, on a layer above the body (shoulder buttons sit behind it)
   const layer = $('#padTags');
   layer.textContent = '';
   for (const e of editable.values()) {
@@ -217,7 +202,7 @@ function renderControls() {
     const g = $(`#pad .btn[data-name="${CSS.escape(e.name)}"]`);
     if (!g) continue;
     const box = g.getBBox();
-    const up = box.y < 120; // shoulders: label above, the body is below
+    const up = box.y < 120;
     const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     t.setAttribute('class', 'job');
     t.setAttribute('x', box.x + box.width / 2);
@@ -226,7 +211,6 @@ function renderControls() {
     layer.appendChild(t);
   }
 
-  // The list
   const rows = $('#rows');
   rows.textContent = '';
   for (const e of remappable(state.entries)) {
@@ -313,8 +297,6 @@ for (const b of $$('#labelSeg button')) {
   });
   b.setAttribute('aria-pressed', String(b.dataset.labels === state.labels));
 }
-
-// --- Profiles (kept in this browser; stored by button name so they survive firmware changes) ---
 
 const loadProfiles = () => JSON.parse(localStorage.getItem('gcu.profiles') || '[]');
 const saveProfiles = (p) => localStorage.setItem('gcu.profiles', JSON.stringify(p));
@@ -426,8 +408,6 @@ function download(name, obj) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-// --- Latency ---
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fmt = (n) => (n == null ? '--' : Math.round(n).toLocaleString());
 
@@ -514,8 +494,6 @@ $('#abBtn').addEventListener('click', () => guard(async () => {
     : 'No reports were measured. Is something reading the controller?';
 }, 'A/B test failed'));
 
-// --- Device ---
-
 function renderDevice() {
   if (!state.dev) return;
   const di = state.devInfo || {};
@@ -549,8 +527,6 @@ $('#backupBtn').addEventListener('click', () => guard(async () => {
   download(`gcu-backup-${b.fw_version}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '')}.json`, b);
   toast('Backup downloaded.', 'ok');
 }, 'Backup failed'));
-
-// --- Start ---
 
 renderConnection();
 const params = new URLSearchParams(location.search);

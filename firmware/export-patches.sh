@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# Writes the changes in the upstream checkouts to firmware/patches/, one patch per repo.
-# Reads the working trees without touching their index: a throwaway index stages new files.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 fw="$here/../upstream/hoja-device-fw"
 lib="$fw/library/HOJA-LIB-RP2040"
 mkdir -p "$here/patches"
 
-# Generated on every build or by the PIO assembler; never part of the patch.
 skip=(':!rp2040/gcu_1/timestamp.h' ':!include/generated/*')
 
 export_repo() {
@@ -21,7 +18,6 @@ export_repo() {
 }
 
 {
-  echo "# Upstream commits the patches apply to: commit, repository."
   export_repo "$fw" "$here/patches/hoja-device-fw.patch"
   export_repo "$lib" "$here/patches/HOJA-LIB-RP2040.patch"
 } > "$here/UPSTREAM"

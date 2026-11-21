@@ -1,13 +1,10 @@
-// The live view: both sticks, the triggers and the buttons as the game sees them, a notch check
-// for each stick and a snapback oscilloscope. Modeled on GTS's controller test, drawn in the app's
-// theme. Values arrive as live reports (gcu-protocol.js parseLive), about 125 a second.
 import { GC_CODES, INPUT, codeName } from './gcu-protocol.js';
 import { NOTCHES, fmtMelee, gcAxis, gcTrigger, meleeUnits, nearestNotch, notchError } from './melee.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
-const TRAIL = 45; // reports, about 0.36 s
+const TRAIL = 45;
 const SCOPE_MS = 2500;
-const HOLD_MS = 250; // a notch counts once the stick sits still this long
+const HOLD_MS = 250;
 const GC_BUTTONS = ['A', 'B', 'X', 'Y', 'Z', 'L', 'R', 'START', 'UP', 'DOWN', 'LEFT', 'RIGHT'];
 const BUTTON_TEXT = { START: 'Start', UP: '▲', DOWN: '▼', LEFT: '◀', RIGHT: '▶' };
 
@@ -21,7 +18,6 @@ function el(tag, attrs = {}, parent = null) {
   return e;
 }
 
-// One stick: the gate, Melee's circle and deadzone, the notch rays, a trail and two dots
 function stickView(svg) {
   svg.setAttribute('viewBox', '-128 -128 256 256');
   const g = el('g', { transform: 'scale(1,-1)' }, svg);
@@ -56,7 +52,6 @@ export function createLive({ root, entries }) {
   let lastSeq = null;
   let dropped = 0;
 
-  // Buttons
   const btnBox = root.querySelector('#liveButtons');
   btnBox.textContent = '';
   const btnEls = new Map();
@@ -103,7 +98,6 @@ export function createLive({ root, entries }) {
     }
   }
 
-  // A report from the controller
   function push(rep) {
     const now = performance.now();
     latest = rep;
@@ -221,7 +215,6 @@ export function createLive({ root, entries }) {
       root.querySelector(`#pre${k.toUpperCase()}`).textContent = fmtRaw(q.x, q.y);
     }
 
-    // Buttons: physical presses through the button map to the GameCube output they make
     const lit = new Set();
     const physical = [];
     for (const e of entries()) {

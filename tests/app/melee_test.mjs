@@ -1,9 +1,6 @@
-// Checks melee.js against readings GTS showed for a calibrated PhobGCC (Raw XY -> Melee).
-//   node tests/app/melee_test.mjs
 import { meleeUnits, meleeValue, nearestNotch, notchError, gcAxis } from '../../tools/app/melee.js';
 
 const gts = [
-  // raw x, raw y, Melee x, Melee y
   [0, 102, 0, 1],
   [76, 73, 0.7125, 0.6875],
   [100, 0, 1, 0],

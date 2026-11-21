@@ -1,8 +1,3 @@
-// UI smoke test of the techchase app in demo mode, in headless Chrome over the DevTools protocol (no
-// extra packages: Node 22's fetch and WebSocket). Clicks through the real flows and checks the DOM.
-//
-//   python tools/app/serve.py --no-browser --port 8474   (in another shell)
-//   node tests/app/ui_smoke.mjs [screenshot-dir]
 import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -70,7 +65,6 @@ try {
 
   check(await until(`document.querySelectorAll('#rows li').length > 10`), 'demo controller connects and lists buttons');
 
-  // Live view (the first tab): the demo hand visits a calibrated Phob's eight notches
   check(await js(`!document.querySelector('#tab-live').hidden`), 'live tab opens first');
   check(await until(`parseInt(document.querySelector('#liveRate').textContent) > 60`, 3000), 'live reports stream in (over 60 a second)');
   check(await until(`/\\d/.test(document.querySelector('#rawL').textContent) && /\\d/.test(document.querySelector('#melL').textContent)`), 'main stick shows raw and Melee coordinates');
@@ -89,7 +83,6 @@ try {
   check(await js(`document.querySelector('#pad [data-name=Power]').classList.contains('fixed')`), 'Power drawn as not remappable');
   check(await js(`document.querySelector('#pad [data-name=LT]').classList.contains('fixed')`), 'analog LT drawn as not remappable');
 
-  // Remap from the picture: ZR -> Jump (X)
   await js(`document.querySelector('#pad [data-name=ZR]').dispatchEvent(new MouseEvent('click', {bubbles: true}))`);
   check(await until(`!document.querySelector('#picker').hidden`), 'clicking ZR in the picture opens the picker');
   check(await js(`document.activeElement?.classList.contains('current')`), 'focus on the current job');
@@ -100,18 +93,15 @@ try {
   check(await js(`/ZR now does Jump/.test(document.querySelector('#toast').textContent)`), 'toast confirms');
   await shot('controls-changed');
   if (shots) {
-    // The README screenshot: the same view once the toast has gone.
     await until(`!document.querySelector('#toast').classList.contains('show')`, 8000);
     await sleep(300);
     await shot('screenshot');
   }
 
-  // Labels toggle
   await js(`document.querySelector('[data-labels=gc]').click()`);
   check(await js(`[...document.querySelectorAll('#rows li')].some(li => /ZR\\s*X\\s*changed/.test(li.textContent))`), 'GameCube labels: ZR -> X');
   await js(`document.querySelector('[data-labels=smash]').click()`);
 
-  // Profiles: save, reset, load
   await js(`document.querySelector('[data-tab=profiles]').click()`);
   await js(`document.querySelector('#profileName').value = 'Ultimate Wolf'; document.querySelector('#saveForm').requestSubmit()`);
   check(await until(`[...document.querySelectorAll('#profiles li')].some(li => /Ultimate Wolf/.test(li.textContent) && /ZR → Jump/.test(li.textContent))`), 'profile saved with ZR -> Jump');
@@ -122,17 +112,14 @@ try {
   check(await until(`[...document.querySelectorAll('#profiles li')].find(li => /Wolf/.test(li.textContent)).querySelector('.active').hidden === false`), 'loading the Wolf profile brings ZR -> Jump back');
   await shot('profiles');
 
-  // Reset all (confirm() auto-accepted)
   await js(`window.confirm = () => true; document.querySelector('[data-tab=controls]').click(); document.querySelector('#resetAllBtn').click()`);
   check(await until(`!document.querySelector('#pad .changed') && document.querySelector('#resetAllBtn').disabled`), 'reset every button');
 
-  // Latency live view
   await js(`document.querySelector('[data-tab=latency]').click(); document.querySelector('#latLive').click()`);
   check(await until(`/^\\d/.test(document.querySelector('#latAvg').textContent)`, 3000), 'live latency shows a number');
   await shot('latency');
   await js(`document.querySelector('#latLive').click()`);
 
-  // Device
   await js(`document.querySelector('[data-tab=device]').click()`);
   check(await js(`document.querySelector('.modes button.current')?.dataset.mode === 'sinput'`), 'device tab marks the current USB mode');
 
@@ -142,7 +129,7 @@ try {
   console.error(e);
   failures++;
 } finally {
-  try { ws?.close(); } catch { /* */ }
+  try { ws?.close(); } catch {  }
   chrome.kill();
 }
 console.log(failures ? `${failures} FAILED` : 'all passed');

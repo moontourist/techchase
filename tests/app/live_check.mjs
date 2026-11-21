@@ -1,5 +1,3 @@
-// Reads the live report from a real controller for two seconds and prints what came in.
-//   node tests/app/live_check.mjs
 import { WebUSB } from 'usb';
 import { GcuDevice, LIVE } from '../../tools/app/gcu-protocol.js';
 import { gcAxis } from '../../tools/app/melee.js';

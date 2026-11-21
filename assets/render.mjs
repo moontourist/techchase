@@ -1,8 +1,3 @@
-// Draws the README banner with headless Chrome over the DevTools protocol, so the image is
-// exactly 960x260 at 2x on every OS (a --screenshot run loses part of the height to the
-// window frame on Windows).
-// Run from the repo root: node assets/render.mjs   (set CHROME=/path/to/chrome if needed)
-// Writes assets/logo.png. Needs Node 22 or later (global fetch and WebSocket).
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -15,12 +10,10 @@ const chromePath = process.env.CHROME ?? (process.platform === 'win32'
   : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
 const PORT = 9334;
 
-// Dracula, the app's own colors: background, foreground brackets, pink tc, purple title.
 const C = { bg: '#282a36', text: '#f8f8f2', dim: '#909cbc', inner: '#ff79c6', title: '#bd93f9' };
 const font = pathToFileURL(join(root, 'tools', 'app', 'fonts', 'JetBrainsMono.ttf')).href;
 const FONT = '"JetBrains Mono", ui-monospace, Menlo, monospace';
 
-// The mark: [tc], the way thunk's is [*], seethe's is [s] and tascii's is [x].
 const mark = `<span>[</span><b style="color:${C.inner}">tc</b><span>]</span>`;
 
 const [w, h] = [960, 260];

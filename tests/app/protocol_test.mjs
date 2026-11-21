@@ -1,7 +1,3 @@
-// Drives the real controller with the app's own protocol module (tools/app/gcu-protocol.js) through
-// Node's WebUSB. Restores whatever layout the controller had before it started.
-//
-//   cd tests/app && npm install && node protocol_test.mjs
 import { WebUSB } from 'usb';
 import {
   GcuDevice, GC_CODES, codeName, remappable, jobs, layoutOf, applyLayout, FORMATS, LATCH_MODES,
@@ -52,21 +48,17 @@ try {
   const zr = byName.ZR, x = byName.X;
   check(zr && x, 'ZR and X present');
 
-  // One remap, as the Controls screen does it
   check(await dev.assign(zr.code, x.code), 'ASSIGN ZR -> X accepted');
   let m = Object.fromEntries((await dev.map()).map((e) => [e.name, e]));
   check(codeName(GC_CODES, m.ZR.gcCur) === 'X' && m.ZR.swCur === x.swDef, 'ZR now jumps in GameCube and Switch profiles');
   check(JSON.stringify(layoutOf(Object.values(m))).includes(`[${zr.code},${x.code}]`), 'layoutOf sees the change');
 
-  // Back to its own default
   check(await dev.assign(zr.code, zr.code), 'ASSIGN ZR -> ZR (own default) accepted');
   m = Object.fromEntries((await dev.map()).map((e) => [e.name, e]));
   check(m.ZR.gcCur === m.ZR.gcDef, 'ZR back to default');
 
-  // Refusal: Power is the modifier
   check(!(await dev.assign(byName.Power.code, x.code)), 'Power refused by the firmware');
 
-  // A profile: swap two buttons, apply, read back
   const swap = [[zr.code, x.code], [x.code, zr.code]];
   await applyLayout(dev, swap);
   const after = layoutOf(await dev.map());

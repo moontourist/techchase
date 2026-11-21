@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Clones HHL's firmware at the commits in firmware/UPSTREAM and applies the techchase patches.
-#
-#   firmware/apply-patches.sh [dir]   (default: upstream/hoja-device-fw)
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 fw="${1:-$here/../upstream/hoja-device-fw}"

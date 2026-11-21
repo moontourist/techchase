@@ -1,9 +1,3 @@
-// techchase protocol over WebUSB. The same module runs in the browser (navigator.usb) and in
-// Node (the `usb` package's WebUSB), so the tests drive the controller with the page's own code.
-//
-// The controller's config interface (vendor class, two bulk endpoints) takes 64-byte packets.
-// Replies come back on its IN endpoint; one reader loop hands each to whoever is waiting for it.
-
 export const ID_READ_CONFIG_BLOCK = 0x01;
 export const ID_READ_STATIC_BLOCK = 0x03;
 export const ID_INPUT_COMMAND = 0x05;
@@ -29,13 +23,10 @@ export const LATCH_MODES = {
   4: 'Poll-locked',
 };
 
-// GameCube outputs a physical button can be given (digital ones)
 export const DIGITAL_GC = new Set(['A', 'B', 'X', 'Y', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'START', 'Z', 'L', 'R', 'ZL',
   'MINUS', 'HOME', 'CAPTURE', 'C', 'LS', 'RS']);
 
-// Live input reports the controller streams about 125 times a second while an app talks to it
 export const LIVE = { TECHCHASE: 253, JOYSTICKS: 254, RAW: 255 };
-// Physical input codes (HOJA's INPUT_CODE_*) the live view needs by number
 export const INPUT = { L: 10, LT_ANALOG: 11, R: 12, RT_ANALOG: 13, LX_RIGHT: 27, LX_LEFT: 28, LY_UP: 29, LY_DOWN: 30,
   RX_RIGHT: 32, RX_LEFT: 33, RY_UP: 34, RY_DOWN: 35 };
 const INPUT_CODES = 36;
@@ -43,11 +34,6 @@ const INPUT_CODES = 36;
 const u16be = (p, o) => (p[o] << 8) | p[o + 1];
 const sticksAt = (p, o) => ({ lx: u16be(p, o) - 2048, ly: u16be(p, o + 2) - 2048, rx: u16be(p, o + 4) - 2048, ry: u16be(p, o + 6) - 2048 });
 
-// One live report as { full, game: sticks, pre: sticks, presses: Set of input codes, lt, rt, seq }.
-// Sticks are firmware units (about +-2048), triggers 0 to 4095. Returns null for a short packet.
-//   253 (techchase firmware): everything at full precision.
-//   255 (any HOJA firmware): every input cut to 7 bits, so sticks move in steps of 64; full = false.
-//   254 (any HOJA firmware): sticks only.
 export function parseLive(p) {
   if (!p || p.length < 41) return null;
   if (p[0] === LIVE.TECHCHASE) {
@@ -70,7 +56,6 @@ export function parseLive(p) {
   return null;
 }
 
-// The 253 report for given values: the demo controller and the tests build packets with it
 export function encodeLive({ game, pre, presses = [], lt = 0, rt = 0, seq = 0 }) {
   const p = new Uint8Array(64);
   const put = (o, v) => { const c = Math.max(0, Math.min(0xFFFF, Math.round(v) + 2048)); p[o] = c >> 8; p[o + 1] = c & 0xFF; };
@@ -96,18 +81,15 @@ export class GcuDevice {
     this.waiters = [];
     this.reading = false;
     this.closed = false;
-    this.queue = Promise.resolve(); // one command at a time
+    this.queue = Promise.resolve();
     this.liveListeners = new Set();
   }
 
-  // Calls fn with every live report (see parseLive) until the returned function is called
   onLive(fn) {
     this.liveListeners.add(fn);
     return () => this.liveListeners.delete(fn);
   }
 
-  // Which live report the controller streams: LIVE.TECHCHASE, JOYSTICKS or RAW. No reply comes back;
-  // firmware without 253 streams RAW instead.
   setLiveMode(mode) {
     return this._run(() => this._send([ID_INPUT_COMMAND, 0, mode]));
   }
@@ -144,8 +126,8 @@ export class GcuDevice {
     this.closed = true;
     for (const w of this.waiters) w.reject(new Error('closed'));
     this.waiters = [];
-    try { await this.dev.releaseInterface(this.itf); } catch { /* gone already */ }
-    try { await this.dev.close(); } catch { /* gone already */ }
+    try { await this.dev.releaseInterface(this.itf); } catch {  }
+    try { await this.dev.close(); } catch {  }
   }
 
   async _readLoop() {
@@ -199,7 +181,6 @@ export class GcuDevice {
     await this.dev.transferOut(this.epOut, out);
   }
 
-  // Commands are serialized: a reply is matched by its id and sub-command only
   _run(fn) {
     const p = this.queue.then(fn, fn);
     this.queue = p.catch(() => {});
@@ -232,8 +213,6 @@ export class GcuDevice {
       return out;
     });
   }
-
-  // --- High level ---
 
   async deviceInfo() {
     const blk = await this.readBlock(ID_READ_STATIC_BLOCK, 0);
@@ -317,15 +296,10 @@ export class GcuDevice {
   }
 }
 
-// --- Layouts (what the app and profiles work with) ---
-
-// Buttons that can be remapped: digital, and not the board's modifier (Power), which the firmware
-// refuses
 export function remappable(entries) {
   return entries.filter((e) => e.name !== 'Power' && DIGITAL_GC.has(codeName(GC_CODES, e.gcDef)));
 }
 
-// Jobs: each remappable button's default GameCube output, given by sending that button as target
 export function jobs(entries) {
   const seen = new Map();
   for (const e of remappable(entries)) {
@@ -334,7 +308,6 @@ export function jobs(entries) {
   return [...seen.values()];
 }
 
-// The layout as [src, target] pairs for every changed button
 export function layoutOf(entries) {
   const byDef = new Map(remappable(entries).map((e) => [e.gcDef, e.code]));
   const out = [];

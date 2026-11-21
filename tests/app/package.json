@@ -1,0 +1,14 @@
+{
+  "name": "techchase-app-tests",
+  "private": true,
+  "description": "Tests for the techchase app: the protocol against a real controller, and the UI in headless Chrome",
+  "type": "module",
+  "license": "CC-BY-NC-SA-3.0",
+  "scripts": {
+    "test:ui": "node ui_smoke.mjs",
+    "test:device": "node protocol_test.mjs"
+  },
+  "dependencies": {
+    "usb": "^2.19.2"
+  }
+}

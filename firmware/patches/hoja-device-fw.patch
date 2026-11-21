@@ -1,0 +1,66 @@
+diff --git a/rp2040/CMakeLists.txt b/rp2040/CMakeLists.txt
+index 21be2d4..3758628 100644
+--- a/rp2040/CMakeLists.txt
++++ b/rp2040/CMakeLists.txt
+@@ -44,22 +44,34 @@ set(HOJA_LIB_ADDED TRUE)
+ 
+ # Set up peripheral directories
+ set(SCRIPTS_DIR ${CMAKE_CURRENT_LIST_DIR}/../scripts)
+-set(BUILDS_DIR  ${CMAKE_CURRENT_LIST_DIR}/../builds)
+ set(ROOT_DIR    ${CMAKE_CURRENT_LIST_DIR}/..)
+ 
++# techchase: local builds publish outside the tracked builds/ folder (which holds HHL's official
++# images, and the official web app's update check reads them), and can be limited to one board
++set(HOJA_PUBLISH_DIR "" CACHE PATH "Where built images are published (default: ../builds)")
++set(HOJA_ONLY_PROJECTS "" CACHE STRING "Semicolon list of boards to configure (default: all)")
++if(HOJA_PUBLISH_DIR)
++    set(BUILDS_DIR ${HOJA_PUBLISH_DIR})
++else()
++    set(BUILDS_DIR ${CMAKE_CURRENT_LIST_DIR}/../builds)
++endif()
++
+ # Define your list of directories
+-set(BULK_PROJECTS_DIRS 
+-    progcc_3 
+-    progcc_3p 
+-    progcc_3.1 
+-    progcc_3.2 
+-    super_gamepad 
+-    gcu_2s 
+-    gcu_1 
+-    gcu_proto 
+-    phob_2 
+-    padbox_gs_c 
++set(BULK_PROJECTS_DIRS
++    progcc_3
++    progcc_3p
++    progcc_3.1
++    progcc_3.2
++    super_gamepad
++    gcu_2s
++    gcu_1
++    gcu_proto
++    phob_2
++    padbox_gs_c
+ )
++if(HOJA_ONLY_PROJECTS)
++    set(BULK_PROJECTS_DIRS ${HOJA_ONLY_PROJECTS})
++endif()
+ 
+ # Iterate through the list
+ foreach(DIR ${BULK_PROJECTS_DIRS})
+diff --git a/rp2040/gcu_1/main.c b/rp2040/gcu_1/main.c
+index e9d6cd5..1ed383b 100644
+--- a/rp2040/gcu_1/main.c
++++ b/rp2040/gcu_1/main.c
+@@ -410,7 +410,9 @@ void cb_hoja_init()
+     adc_hal_init(&trigger_driver_l);
+ }
+ 
+-#define BUTTON_SLEEP_US 15
++// techchase: 15 -> 4 us per row. A row line is driven both ways and a pressed key pulls its
++// column through the switch, so each row settles in well under a microsecond; 6 rows save 66 us
++#define BUTTON_SLEEP_US 4
+ 
+ void cb_hoja_read_input(mapper_input_s *input)
+ {

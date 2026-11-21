@@ -1,0 +1,15 @@
+# Upstream checkouts and build output (rebuilt by firmware/apply-patches.sh and the build steps)
+/upstream/
+/build*/
+/out/
+
+# The owner's settings backups and HHL's official images stay local
+/backups/
+/official/
+
+# Tooling
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+*.exe

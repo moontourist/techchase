@@ -1,7 +1,8 @@
 import {
-  GcuDevice, GC_CODES, SW_CODES, FORMATS, MODE_IDS, LATCH_MODES, codeName, remappable, jobs, layoutOf, applyLayout,
+  GcuDevice, GC_CODES, SW_CODES, FORMATS, MODE_IDS, LATCH_MODES, LIVE, codeName, remappable, jobs, layoutOf, applyLayout,
 } from './gcu-protocol.js';
 import { makeDemoDevice } from './demo.js';
+import { createLive } from './live.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -37,7 +38,9 @@ const state = {
   selected: null, // input code
   busy: false,
   live: null,
+  unsubLive: null,
 };
+const liveView = createLive({ root: $('#tab-live'), entries: () => state.entries });
 
 function jobLabel(gcCode, { both = false } = {}) {
   const gc = codeName(GC_CODES, gcCode);
@@ -83,6 +86,10 @@ async function attach(dev) {
   state.dev = dev;
   state.devInfo = await dev.deviceInfo();
   state.info = await dev.info();
+  liveView.reset();
+  state.unsubLive = dev.onLive((rep) => liveView.push(rep));
+  // Firmware without the techchase report keeps streaming its 7-bit view, which the live tab also reads
+  await dev.setLiveMode(LIVE.TECHCHASE);
   await refreshMap();
   renderConnection();
   renderDevice();
@@ -116,6 +123,10 @@ async function autoConnect() {
 
 function detach(msg) {
   stopLive();
+  state.unsubLive?.();
+  state.unsubLive = null;
+  liveView.stop();
+  liveView.reset();
   state.dev = null;
   state.entries = [];
   state.selected = null;
@@ -166,6 +177,8 @@ function showTab(name) {
   for (const s of $$('.tab')) s.hidden = !state.dev || s.id !== `tab-${name}`;
   if (name !== 'latency') stopLive();
   if (name === 'profiles') renderProfiles();
+  if (name === 'controls' && state.dev) renderControls(); // tag positions need the picture on screen
+  if (name === 'live' && state.dev) liveView.start(); else liveView.stop();
 }
 for (const b of $$('.tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
 
@@ -291,11 +304,11 @@ $('#resetAllBtn').addEventListener('click', () => guard(async () => {
   toast('Every button is back to default. Saved.', 'ok');
 }, 'Reset failed'));
 
-for (const b of $$('.seg button')) {
+for (const b of $$('#labelSeg button')) {
   b.addEventListener('click', () => {
     state.labels = b.dataset.labels;
     localStorage.setItem('gcu.labels', state.labels);
-    for (const x of $$('.seg button')) x.setAttribute('aria-pressed', String(x === b));
+    for (const x of $$('#labelSeg button')) x.setAttribute('aria-pressed', String(x === b));
     renderControls();
   });
   b.setAttribute('aria-pressed', String(b.dataset.labels === state.labels));

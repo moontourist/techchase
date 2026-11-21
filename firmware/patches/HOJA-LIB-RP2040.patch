@@ -94,10 +94,10 @@ index 625c004..3e1d2d4 100644
  #endif
 \ No newline at end of file
 diff --git a/include/usb/webusb.h b/include/usb/webusb.h
-index ff3efca..4092268 100644
+index ff3efca..1015d73 100644
 --- a/include/usb/webusb.h
 +++ b/include/usb/webusb.h
-@@ -16,6 +16,7 @@ typedef enum
+@@ -16,9 +16,11 @@ typedef enum
    WEBUSB_ID_PROFILE,            // Settings profiles: list, switch, rename, copy (utilities/profiles.h)
    WEBUSB_LEGACY_SET_BOOTLOADER = 15,
    WEBUSB_ID_BENCH_LOG = 0xB0,   // Bench only (HOJA_BENCH_LOG): the next of the text kept by utilities/bench_log.h
@@ -105,6 +105,10 @@ index ff3efca..4092268 100644
    WEBUSB_LEGACY_GET_FW_VERSION = 0xAF, 
    WEBUSB_SNAPBACK_CAPTURE = 249, // A stick coming back from a push, both axes at the analog rate (snapback_capture.h)
    WEBUSB_ANALOG_DUMP = 250,
++  WEBUSB_INPUT_TECHCHASE = 253, // techchase: sticks before and after filtering, every press, both triggers
+   WEBUSB_INPUT_JOYSTICKS = 254,
+   WEBUSB_INPUT_RAW = 255, 
+ } webusb_report_id_t;
 diff --git a/include/utilities/latch.h b/include/utilities/latch.h
 new file mode 100644
 index 0000000..a202b77
@@ -1013,7 +1017,7 @@ index 0a03cca..7afadc4 100644
          // The game sees the pad at rest, but a hand on it still keeps the idle timer off: the mapper's
          // heartbeat below only sees this pass, and not every app view runs the app's own pass
 diff --git a/src/usb/webusb.c b/src/usb/webusb.c
-index 9288855..3967562 100644
+index 9288855..935ca91 100644
 --- a/src/usb/webusb.c
 +++ b/src/usb/webusb.c
 @@ -18,6 +18,10 @@
@@ -1027,7 +1031,71 @@ index 9288855..3967562 100644
  
  #include "hhl_tusb.h"
  
-@@ -297,6 +301,112 @@ static void _webusb_send_fingerprints(void)
+@@ -144,6 +148,52 @@ void webusb_send_bulk(const uint8_t *data, uint16_t size)
+     }
+ }
+ 
++// techchase: the live view's report. After the shared header (bytes 1 to 14), big-endian u16s:
++//   [15..22] lx ly rx ry as the game gets them (after snapback and deadzone), centered on 2048
++//   [23..30] lx ly rx ry calibrated, before snapback and deadzone, centered on 2048
++//   [31..35] presses, bit n = input code n (INPUT_CODE_*), little-endian
++//   [36..39] LT and RT analog, 0 to 4095
++//   [40]     a counter, +1 per report, so the app sees dropped reports
++static void _webusb_put_u16be(uint8_t *at, int32_t value)
++{
++    uint16_t v = (uint16_t)(value < 0 ? 0 : (value > 0xFFFF ? 0xFFFF : value));
++    at[0] = (uint8_t)(v >> 8);
++    at[1] = (uint8_t)(v & 0xFF);
++}
++
++static void _webusb_put_sticks(uint8_t *at, const analog_data_s *s)
++{
++    _webusb_put_u16be(&at[0], (int32_t)s->lx + 2048);
++    _webusb_put_u16be(&at[2], (int32_t)s->ly + 2048);
++    _webusb_put_u16be(&at[4], (int32_t)s->rx + 2048);
++    _webusb_put_u16be(&at[6], (int32_t)s->ry + 2048);
++}
++
++static void _webusb_fill_techchase_live(uint8_t *report)
++{
++    static uint8_t counter = 0;
++    analog_data_s sticks;
++    mapper_input_s hovers;
++
++    report[0] = WEBUSB_INPUT_TECHCHASE;
++
++    analog_access_safe(&sticks, ANALOG_ACCESS_DEADZONE_DATA);
++    _webusb_put_sticks(&report[15], &sticks);
++    analog_access_safe(&sticks, ANALOG_ACCESS_SCALED_DATA);
++    _webusb_put_sticks(&report[23], &sticks);
++
++    hovers = mapper_get_translated_input();
++    memset(&report[31], 0, 5);
++    for (uint32_t i = 0; (i < (uint32_t)INPUT_CODE_MAX) && (i < 40u); i++)
++    {
++        if (hovers.presses[i])
++            report[31u + (i >> 3)] |= (uint8_t)(1u << (i & 7u));
++    }
++    _webusb_put_u16be(&report[36], hovers.inputs[INPUT_CODE_LT_ANALOG]);
++    _webusb_put_u16be(&report[38], hovers.inputs[INPUT_CODE_RT_ANALOG]);
++    report[40] = counter++;
++}
++
+ #define CLAMP_0_255(value) ((value) < 0 ? 0 : ((value) > 255 ? 255 : (value)))
+ void webusb_send_rawinput(uint64_t timestamp)
+ {
+@@ -246,6 +296,10 @@ void webusb_send_rawinput(uint64_t timestamp)
+                 webusb_input_report[29] = (ry & 0xFF00) >> 8;
+                 webusb_input_report[30] = (ry & 0xFF);
+             break;
++
++            case WEBUSB_INPUT_TECHCHASE:
++                _webusb_fill_techchase_live(webusb_input_report);
++            break;
+         }
+ 
+         if (!_webusb_sink->send_input(webusb_input_report, 64))
+@@ -297,6 +351,112 @@ static void _webusb_send_fingerprints(void)
      }
  }
  
@@ -1140,7 +1208,7 @@ index 9288855..3967562 100644
  void webusb_command_handler(uint8_t *data, uint32_t size)
  {
      // The app's motion view wants standard IMU data. Through the dongle or BLE a game may be using
-@@ -358,6 +468,10 @@ void webusb_command_handler(uint8_t *data, uint32_t size)
+@@ -358,6 +518,10 @@ void webusb_command_handler(uint8_t *data, uint32_t size)
              // Do nothing
          break;
  

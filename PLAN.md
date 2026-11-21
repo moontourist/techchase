@@ -8,6 +8,24 @@ this project leaves alone and never renames.
 Target hardware: **Hand Held Legend GC Ultimate, revision R4K** (USB product string `GCU-R4K`,
 FCC ID 2BM3E-GCU-R4K). Upstream firmware target: `hoja-device-fw/rp2040/gcu_1`.
 
+## Mission
+**techchase is the all-in-one controller utility for PhobGCC and the GC Ultimate: one place to
+calibrate them and to cut their input lag, so every aftermarket controller gets the same lag
+reduction and is ready for tournament play.**
+
+Every decision gets checked against it:
+* **Calibrate or cut lag?** A feature should help a player calibrate a Phob or a GC Ultimate, or
+  lower its input lag. Anything else waits.
+* **Both controllers.** A feature built for one controller is planned for the other too, or the
+  plan says why it can't be. Prefer approaches that reach more aftermarket controllers (any HOJA
+  board, any PhobGCC) over ones tied to one board.
+* **Tournament-legal.** Nothing ships that a Melee or Ultimate ruleset would ban, and anything near
+  the line is off by default.
+* **Intuitive.** A player who has never read a manual can do it: show the controller live, say what
+  to do next, and show the result.
+* **Measured.** Lag claims come with numbers taken on the controller, and the method is written
+  down.
+
 ## Goal
 As close to a PhobGCC as possible in input lag and tournament viability, on the platforms the owner
 plays:
@@ -362,17 +380,8 @@ Phase 7; nothing here changes how the controller behaves.
 * [ ] **12f CI.** GitHub Actions on every push: apply the patches and build `gcu_1` with the Pico
   SDK, run the latch simulation, the UI smoke test in headless Chrome, and the linters. Tagged
   releases attach the `.uf2`.
-* [ ] **12g Desktop app.** One installable app for the GC Ultimate now and the Phob later
-  (Phase 13).
-  * Recommendation: **Rust + Tauri 2** around the existing web UI.
-    * Rust talks USB directly (`nusb` or `rusb` with RAW_IO), so there's no 470 reads/s WinUSB cap
-      and no Chrome device chooser. It can also reach a GameCube adapter, which a browser can't
-      do well and Phase 13 needs.
-    * The `scadoshi-rust` rules then apply word for word: copy wave's `rustfmt.toml`,
-      `clippy.toml` and lint set.
-    * The HTML/CSS/JS screens move over as they are.
-  * The browser version stays, on GitHub Pages, for setting up at a venue from a phone.
-  * `gcu.py` stays as a test tool until the app's CLI covers it.
+* [ ] **12g Desktop app.** One installable app for the GC Ultimate and the Phob. Decided:
+  Rust, see Phase 14.
 
 ## Phase 13: Phob configurator (replaces the config ROM in Dolphin)
 The owner's PhobGCC (2.0.5 board, firmware 0.29) is set up today by running a config ROM in Dolphin
@@ -406,9 +415,140 @@ Steps:
 * [ ] **13d Two-way settings (stretch).** For Phobs whose USB works: a small serial command set
   (read and write settings) proposed upstream to PhobGCC-SW as a pull request, so players don't
   need a fork.
-* [ ] **13e License check.** Talking to a Phob needs none of its code. Any PhobGCC code copied in
+* [ ] **13e Phob input lag.** The mission covers the Phob's lag too, not only its setup.
+  * Measure when a Phob reads its sticks and buttons relative to the console's poll (PhobGCC
+    source, then a logic analyzer or the Pico rig from Phase 9 on the joybus line).
+  * If reads land early, a late-latch for PhobGCC (the joybus version of `latch.c`, which a
+    console's steady poll suits well) goes upstream to PhobGCC-SW as a pull request, under its
+    GPL-3.0.
+  * Testing needs a Phob that can be flashed: the owner's needs its USB port repaired first.
+* [ ] **13f License check.** Talking to a Phob needs none of its code. Any PhobGCC code copied in
   (for example, its notch math) stays GPL-3.0 and goes in its own module. Decide this before
   copying anything.
+
+## Phase 14: Rust conversion
+Decided 2026-11-21 after an audit of the app and tools. JavaScript is not slow here: the app's
+language has no effect on input lag, because the controller does the timing. Rust wins on what the
+app can reach and on how far its code can be trusted.
+
+Audit findings:
+* **The browser can't do Phase 13.** Chrome's WebUSB blocks HID devices. The official GameCube
+  adapter is one and the Lossless adapter copies it, so a web page can never read a Phob.
+* **The browser can't poll fast.** It has no RAW_IO, so 1 kHz polling (the Slippi A/B test) lives in
+  Python.
+* **The protocol exists three times:** `gcu-protocol.js`, `gcu.py` and part of
+  `slippi_poll_ab.py`. Every protocol change is made three times.
+* **Parsing trusted the controller.** Map page counts, block chunk lengths and the stats length
+  went unchecked (fixed in the JavaScript 2026-11-21). A late reply to a timed-out command can
+  still be taken as the next command's reply. Clippy's `indexing_slicing` and the type system turn
+  this class of bug into build errors.
+
+Why not C#: no maintained USB library (we'd write Windows bindings by hand), a second UI framework
+for Mac, a third app for phones, and the `scadoshi-rust` rules would only be approximated.
+
+Steps:
+* [ ] **14a Spike.** A `techchase-core` crate plus a CLI matching `gcu.py`.
+  * It passes the same checks as `tests/app/protocol_test.mjs` on the real controller.
+  * It polls the controller at about 1 kHz with RAW_IO, trying `nusb` first and `rusb` (libusb)
+    second.
+  * It opens the Lossless adapter and reads port 1.
+  * These are the two things a browser can't do, so the spike proves them before anything else is
+    built.
+* [ ] **14b Core crate.**
+  * Protocol, live report parsing, the Melee math (`tools/app/melee.js` and its tests move over),
+    layouts and profiles.
+  * Pure, no USB. Newtypes for input codes and units, enums for commands and modes.
+  * The `scadoshi-rust` lint set and wave's `rustfmt.toml` and `clippy.toml`, warnings as errors.
+* [ ] **14c USB crate.** GC Ultimate config interface, GameCube adapter (for the Phob), RAW_IO,
+  hot-plug.
+* [ ] **14d Desktop app.** Tauri 2. The current screens (HTML, CSS, JavaScript) move over as they
+  are and call the Rust core instead of WebUSB.
+  * Installers for Windows and Mac.
+  * One app finds both the GC Ultimate and a Phob on an adapter.
+* [ ] **14e Web build.** The core compiled to WebAssembly for the GitHub Pages version, which stays
+  for setting up a GC Ultimate from a phone at a venue.
+* [ ] **14f Retire the copies.** Delete the JavaScript protocol module and the Python tools once the
+  Rust CLI and the WebAssembly build cover them. The test suites move to `cargo test` plus the UI
+  smoke test.
+* Later, not now: rewriting the screens themselves in Rust (Dioxus, as scadoshi's `orangui` uses).
+  It's worth it only if the JavaScript UI starts to hurt.
+
+## Phase 15: UI revamp, live controller view
+The app's home screen shows the controller live, the way GTS's controller test does in Dolphin, so
+calibration and checking happen in one place with no ROM. The same screens serve the GC Ultimate
+and, through Phase 13's adapter reading, the Phob.
+
+Reference: GTS's "Controller Test" and "Stick Oscilloscope" screens. On 2026-11-08 they were used to
+check the owner's Phob after calibration (eight notches read as Raw XY and Melee coordinates, such
+as up-right (76, 73) = (0.7125, 0.6875)).
+
+* [x] **15a Live report (firmware).** A new WebUSB report, `WEBUSB_INPUT_TECHCHASE` (253), about 125
+  a second while the app is connected:
+  * both sticks as the game gets them (after snapback and deadzone), at full 12-bit precision
+  * both sticks calibrated but before snapback and deadzone, to show what the filter does
+  * every physical press, both analog triggers, and a counter to spot dropped reports
+
+  HHL's own reports only had sticks (254) or every input cut to 7 bits (255). The app falls back
+  to 255 on firmware without 253 and says the view is coarse.
+  Flashed 2026-11-21 (build 1795295052, sha256 47899d44...). On hardware: 125 reports a second at
+  full precision, none dropped, sticks read (0, 0) at rest (`tests/app/live_check.mjs`). The
+  protocol test passes 15 of 15 on the same build.
+* [x] **15b Live tab (app), the new first tab.**
+  * Main stick and C-stick:
+    * the gate, Melee's unit circle and deadzone, notch rays
+    * a short trail, and dots for the position before and after the filter
+    * readouts: raw XY in GameCube units, Melee coordinates, and the value before filtering
+  * Triggers as 0 to 255 bars with the full-press click, and GameCube buttons that light up. A
+    remapped button lights its new job, and the pressed list shows "ZR → X".
+  * **Notch check** for each stick. Hold the stick still at the rim for 0.25 s and the notch is
+    recorded (raw, Melee, and how far it is from 1.0000 or 0.7000). Measured notches redraw the
+    gate.
+  * **Snapback oscilloscope:** one axis over 2.5 s, with Melee's ±23 deadzone lines, before and
+    after the filter.
+  * `melee.js` holds the GameCube and Melee math. `tests/app/melee_test.mjs` checks it against all
+    nine GTS readings from the owner's Phob (all pass).
+  * The demo controller replays those notches with snapback wobble.
+  * UI smoke test: 28 of 28.
+* [ ] **15c Against GTS.** Compare the live view with GTS on the same controller and notch. Raw XY
+  must match in Slippi mode.
+* [ ] **15d Guided GC Ultimate calibration in the live view.** HOJA already has calibration commands
+  (`ANALOG_CMD_CALIBRATE_START`/`STOP`, notch capture). Walk the player through them, with the
+  live stick as feedback and the notch check as the result. That replaces HHL's calibration page
+  for most players.
+* [ ] **15e The Phob in the same view.** Once Phase 13 reads a Phob through the adapter, it feeds
+  this view, and 13c's guided setup runs here.
+* [ ] **15f More GTS tools.** Trigger oscilloscope, button timing (press to release, for
+  double-press checks), a 2D plot that records a whole stick sweep, and export of a calibration
+  report.
+* [ ] **15g Polish.** A first-run walkthrough, a phone layout for venue setup, keyboard use, and
+  contrast checks (CONTRIBUTING.md).
+
+## Phase 16: GC Ultimate LED colors
+The GC Ultimate has 12 RGB LEDs in 6 groups: the left stick ring, A, B, X, Y, and the Power
+notification LED. HOJA keeps their setup in the RGB settings block (`rgbConfig_s`: mode, speed,
+32 packed colors, brightness 0 to 4096, idle glow). HHL's web app edits it; techchase should too,
+so players don't need two apps.
+
+Modes in the firmware: authentic (era colors that follow remaps), static, rainbow, react, fairy,
+and idle. Breathe is reserved and not wired up yet.
+
+* [ ] **16a Research.**
+  * The exact layout of `rgb_colors[]` for the GCU's groups.
+  * How a write takes effect: `WEBUSB_ID_WRITE_CONFIG_BLOCK`, then `RGB_CMD_REFRESH`.
+  * How the firmware's own status colors take over the LEDs (Quick Remap's purple pulse, mode
+    colors, the shutdown animation), so a user color never hides a status.
+* [ ] **16b LED screen.**
+  * The controller picture with each LED group clickable, a color picker, and brightness, mode and
+    speed.
+  * A live preview on the controller while editing, then save.
+  * Read and write go through the same block path as the settings backup.
+* [ ] **16c Presets.** Dracula (the app's palette), indigo GameCube, era-authentic, all off.
+  Presets are saved with profiles, so a profile can carry its colors.
+* [ ] **16d Tournament check.** A one-click "venue" setting: low brightness or off, no animations
+  that could distract the opponent. Status colors stay readable. Ties into Phase 11's tournament
+  lock.
+* [ ] **16e Phob.** A Phob has no RGB, so this phase is GC Ultimate only. The mission's "both
+  controllers" rule is met by saying so.
 
 ## Rollback
 Hold ZL + Start while plugging in, then drag `official/gcu_r4k/gcu_r4k.uf2` onto the drive (or use

@@ -1,7 +1,57 @@
 // A stand-in controller for ?demo: the same API as GcuDevice, held in memory, starting from the
 // real GC Ultimate's button map (demo-fixture.json). Latency numbers are made up but shaped like the
 // measured ones.
-import { remappable } from './gcu-protocol.js';
+import { encodeLive, parseLive, remappable } from './gcu-protocol.js';
+import { GC_PER_FW } from './melee.js';
+
+// A hand on the demo controller: the main stick visits the eight notches of a calibrated PhobGCC
+// (its GTS readings, in GameCube units), lets go of each with a snapback wobble, then circles the
+// gate. The C-stick turns slowly, L ramps up and down, A and ZR get tapped.
+const DEMO_NOTCHES = [[100, 0], [76, 73], [0, 102], [-74, 77], [-101, 0], [-73, -73], [0, -101], [74, -75]];
+const STEP_MS = 1200;
+const CYCLE_MS = DEMO_NOTCHES.length * STEP_MS + 4400;
+const fw = (gc) => (gc + 0.5) / GC_PER_FW;
+
+function demoHand(t) {
+  const c = t % CYCLE_MS;
+  let pre = [0, 0];
+  let game = [0, 0];
+  if (c < DEMO_NOTCHES.length * STEP_MS) {
+    const [nx, ny] = DEMO_NOTCHES[Math.floor(c / STEP_MS)];
+    const k = c % STEP_MS;
+    if (k < 250) {
+      const e = 1 - (1 - k / 250) ** 3;
+      pre = [nx * e, ny * e];
+      game = pre;
+    } else if (k < 850) {
+      pre = [nx, ny];
+      game = pre;
+    } else {
+      const s = (k - 850) / 1000;
+      const w = Math.exp(-s / 0.035) * Math.cos(2 * Math.PI * 24 * s) * -0.42;
+      pre = [nx * w, ny * w];
+      game = pre.map((v) => (Math.abs(v) < 20 ? 0 : v * 0.5));
+    }
+  } else {
+    const a = ((c - DEMO_NOTCHES.length * STEP_MS) / 4400) * 2 * Math.PI;
+    const r = 99 + 3 * Math.cos(4 * a);
+    pre = [r * Math.cos(a), r * Math.sin(a)];
+    game = pre;
+  }
+  const ca = (t / 2000) * 2 * Math.PI;
+  const tri = 1 - Math.abs(((t / 1500) % 2) - 1);
+  const presses = [];
+  if (t % 1700 < 150) presses.push(0); // A
+  if (t % 3100 < 200) presses.push(9); // ZR
+  if (tri > 0.97) presses.push(10); // L, fully in
+  return {
+    game: { lx: fw(game[0]), ly: fw(game[1]), rx: fw(70 * Math.cos(ca)), ry: fw(70 * Math.sin(ca)) },
+    pre: { lx: fw(pre[0]), ly: fw(pre[1]), rx: fw(70 * Math.cos(ca)), ry: fw(70 * Math.sin(ca)) },
+    presses,
+    lt: Math.round(tri * 4095),
+    rt: 0,
+  };
+}
 
 export async function makeDemoDevice() {
   const fixture = await (await fetch('demo-fixture.json')).json();
@@ -19,7 +69,27 @@ class DemoDevice {
     this.vendorId = 0x2E8A;
     this.productId = 0x10C6;
     this.demo = true;
+    this.liveFns = new Set();
+    this.liveTimer = null;
+    this.seq = 0;
   }
+
+  onLive(fn) {
+    this.liveFns.add(fn);
+    if (!this.liveTimer) {
+      this.liveTimer = setInterval(() => {
+        const pkt = encodeLive({ ...demoHand(performance.now() - this.t0), seq: this.seq++ });
+        const rep = parseLive(pkt);
+        for (const f of this.liveFns) f(rep);
+      }, 8);
+    }
+    return () => {
+      this.liveFns.delete(fn);
+      if (!this.liveFns.size) { clearInterval(this.liveTimer); this.liveTimer = null; }
+    };
+  }
+
+  async setLiveMode() {}
 
   async open() {}
   async close() {}

@@ -11,7 +11,8 @@
 <header class="top">
   <div class="brand"><span class="mark">[<i>tc</i>]</span><span class="name">techchase</span></div>
   <nav class="tabs" role="tablist">
-    <button role="tab" data-tab="controls" aria-selected="true">Controls</button>
+    <button role="tab" data-tab="live" aria-selected="true">Live</button>
+    <button role="tab" data-tab="controls">Controls</button>
     <button role="tab" data-tab="profiles">Profiles</button>
     <button role="tab" data-tab="latency">Latency</button>
     <button role="tab" data-tab="device">Device</button>
@@ -36,6 +37,69 @@
     <p id="noWebUsb" class="warn" hidden>This browser has no WebUSB. Open this page in Chrome or Edge (desktop or Android).</p>
   </section>
 
+  <!-- Live -->
+  <section id="tab-live" class="tab" hidden>
+    <div class="controls-head">
+      <div>
+        <h2>Live</h2>
+        <p class="muted">What the game sees, as you move: both sticks in GameCube units and Melee coordinates, the triggers and the buttons.</p>
+      </div>
+      <p class="live-meta"><span id="liveRate">--</span> <span id="liveDrops" class="muted"></span></p>
+    </div>
+    <p id="liveCoarse" class="warn small" hidden>This firmware streams a coarse view (sticks in steps of about 3 units). Update to the latest techchase firmware for full precision.</p>
+
+    <div class="live-grid">
+      <div class="box stick-box">
+        <h3>main stick</h3>
+        <svg id="liveL" class="stick" role="img" aria-label="Main stick position"></svg>
+        <dl class="coords">
+          <dt>raw xy</dt><dd id="rawL">--</dd>
+          <dt>melee</dt><dd id="melL">--</dd>
+          <dt>before filter</dt><dd id="preL" class="muted">--</dd>
+        </dl>
+      </div>
+      <div class="box stick-box cstick">
+        <h3>c-stick</h3>
+        <svg id="liveR" class="stick" role="img" aria-label="C-stick position"></svg>
+        <dl class="coords">
+          <dt>raw xy</dt><dd id="rawR">--</dd>
+          <dt>melee</dt><dd id="melR">--</dd>
+          <dt>before filter</dt><dd id="preR" class="muted">--</dd>
+        </dl>
+      </div>
+      <div class="box side-box">
+        <h3>triggers</h3>
+        <div class="trig"><span class="tname">L</span><span class="track"><span id="trigL" class="fill"></span></span><span id="trigLVal" class="tval">--</span><span id="trigLDig" class="dig">[full]</span></div>
+        <div class="trig"><span class="tname">R</span><span class="track"><span id="trigR" class="fill"></span></span><span id="trigRVal" class="tval">--</span><span id="trigRDig" class="dig">[full]</span></div>
+        <h3>buttons</h3>
+        <div id="liveButtons" class="gc-buttons"></div>
+        <p id="livePressed" class="muted small pressed">nothing pressed</p>
+        <p class="legend"><span class="key dot-key"></span> what the game gets <span class="key pre-key"></span> before snapback and deadzone</p>
+      </div>
+    </div>
+
+    <div class="live-grid two">
+      <div class="box notch-box">
+        <div class="box-head">
+          <h3>notches</h3>
+          <div id="notchStick" class="seg small-seg"><button data-v="l" aria-pressed="true">main</button><button data-v="r" aria-pressed="false">c-stick</button></div>
+          <button id="notchClear" class="ghost small-btn">clear</button>
+        </div>
+        <table class="notches"><thead><tr><th>direction</th><th>raw xy</th><th>melee</th><th></th></tr></thead><tbody id="notchRows"></tbody></table>
+        <p id="notchSummary" class="muted small"></p>
+      </div>
+      <div class="box scope-box">
+        <div class="box-head">
+          <h3>snapback</h3>
+          <div id="scopeStick" class="seg small-seg"><button data-v="l" aria-pressed="true">main</button><button data-v="r" aria-pressed="false">c-stick</button></div>
+          <div id="scopeAxis" class="seg small-seg"><button data-v="x" aria-pressed="true">x</button><button data-v="y" aria-pressed="false">y</button></div>
+        </div>
+        <canvas id="scope"></canvas>
+        <p class="muted small">Flick the stick and let go. A wobble that crosses the green lines (Melee's deadzone) can register as an input. Pink is what the game gets, blue is before the filter.</p>
+      </div>
+    </div>
+  </section>
+
   <!-- Controls -->
   <section id="tab-controls" class="tab" hidden>
     <div class="controls-head">
@@ -43,7 +107,7 @@
         <h2>Controls</h2>
         <p class="muted">Pick a button, then pick the job it should do. Saved on the controller at once and used in every mode: Switch, Slippi, PC.</p>
       </div>
-      <div class="seg" role="radiogroup" aria-label="Labels">
+      <div id="labelSeg" class="seg" role="radiogroup" aria-label="Labels">
         <button data-labels="smash" aria-pressed="true">Smash actions</button>
         <button data-labels="gc" aria-pressed="false">GameCube names</button>
       </div>

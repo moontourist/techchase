@@ -69,6 +69,21 @@ try {
   await cdp('Page.navigate', { url: `${APP}?demo` });
 
   check(await until(`document.querySelectorAll('#rows li').length > 10`), 'demo controller connects and lists buttons');
+
+  // Live view (the first tab): the demo hand visits a calibrated Phob's eight notches
+  check(await js(`!document.querySelector('#tab-live').hidden`), 'live tab opens first');
+  check(await until(`parseInt(document.querySelector('#liveRate').textContent) > 60`, 3000), 'live reports stream in (over 60 a second)');
+  check(await until(`/\\d/.test(document.querySelector('#rawL').textContent) && /\\d/.test(document.querySelector('#melL').textContent)`), 'main stick shows raw and Melee coordinates');
+  check(await until(`document.querySelector('#trigLVal').textContent.trim() !== '--'`), 'L trigger shows a value');
+  check(await until(`document.querySelectorAll('#notchRows td.ok, #notchRows td.near, #notchRows td.off').length === 8`, 14000), 'all eight notches measured');
+  check(await js(`[...document.querySelectorAll('#notchRows tr')].some(tr => /Up-right/.test(tr.textContent) && /76,\\s+73/.test(tr.textContent) && /0\\.7125,\\s+0\\.6875/.test(tr.textContent))`), 'up-right notch reads raw (76, 73), Melee (0.7125, 0.6875), as GTS did');
+  check(await js(`document.querySelectorAll('#liveL .notch-dots circle').length === 8 && document.querySelector('#liveL .gate').classList.contains('measured')`), 'measured notches drawn as the gate');
+  check(await js(`document.querySelector('#notchStick [data-v=l]').getAttribute('aria-pressed') === 'true' && document.querySelector('#scopeAxis [data-v=x]').getAttribute('aria-pressed') === 'true'`), 'live toggles keep their own state');
+  await shot('live');
+  await js(`document.querySelector('#notchStick [data-v=r]').click()`);
+  check(await js(`[...document.querySelectorAll('#notchRows td')].filter(td => td.textContent === 'hold it here').length === 8`), 'c-stick notch table is separate');
+  await js(`document.querySelector('#notchStick [data-v=l]').click()`);
+  await js(`document.querySelector('[data-tab=controls]').click()`);
   check(await js(`document.querySelector('[data-labels=smash]').getAttribute('aria-pressed') === 'true'`), 'Smash labels by default');
   check(await js(`[...document.querySelectorAll('#rows li')].some(li => /ZR\\s*Grab/.test(li.textContent))`), 'ZR shows Grab');
   check(await js(`document.querySelector('#pad [data-name=Power]').classList.contains('fixed')`), 'Power drawn as not remappable');

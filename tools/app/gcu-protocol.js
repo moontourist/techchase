@@ -6,6 +6,7 @@
 
 export const ID_READ_CONFIG_BLOCK = 0x01;
 export const ID_READ_STATIC_BLOCK = 0x03;
+export const ID_INPUT_COMMAND = 0x05;
 export const ID_TECHCHASE = 0xC0;
 
 export const T = { INFO: 0, STATS: 1, STATS_RESET: 2, LATCH: 3, ASSIGN: 4, RESET_ALL: 5, MAP: 6, USB_MODE: 7 };
@@ -32,6 +33,58 @@ export const LATCH_MODES = {
 export const DIGITAL_GC = new Set(['A', 'B', 'X', 'Y', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'START', 'Z', 'L', 'R', 'ZL',
   'MINUS', 'HOME', 'CAPTURE', 'C', 'LS', 'RS']);
 
+// Live input reports the controller streams about 125 times a second while an app talks to it
+export const LIVE = { TECHCHASE: 253, JOYSTICKS: 254, RAW: 255 };
+// Physical input codes (HOJA's INPUT_CODE_*) the live view needs by number
+export const INPUT = { L: 10, LT_ANALOG: 11, R: 12, RT_ANALOG: 13, LX_RIGHT: 27, LX_LEFT: 28, LY_UP: 29, LY_DOWN: 30,
+  RX_RIGHT: 32, RX_LEFT: 33, RY_UP: 34, RY_DOWN: 35 };
+const INPUT_CODES = 36;
+
+const u16be = (p, o) => (p[o] << 8) | p[o + 1];
+const sticksAt = (p, o) => ({ lx: u16be(p, o) - 2048, ly: u16be(p, o + 2) - 2048, rx: u16be(p, o + 4) - 2048, ry: u16be(p, o + 6) - 2048 });
+
+// One live report as { full, game: sticks, pre: sticks, presses: Set of input codes, lt, rt, seq }.
+// Sticks are firmware units (about +-2048), triggers 0 to 4095. Returns null for a short packet.
+//   253 (techchase firmware): everything at full precision.
+//   255 (any HOJA firmware): every input cut to 7 bits, so sticks move in steps of 64; full = false.
+//   254 (any HOJA firmware): sticks only.
+export function parseLive(p) {
+  if (!p || p.length < 41) return null;
+  if (p[0] === LIVE.TECHCHASE) {
+    const presses = new Set();
+    for (let i = 0; i < INPUT_CODES; i++) if (p[31 + (i >> 3)] & (1 << (i & 7))) presses.add(i);
+    return { full: true, game: sticksAt(p, 15), pre: sticksAt(p, 23), presses, lt: u16be(p, 36), rt: u16be(p, 38), seq: p[40] };
+  }
+  if (p[0] === LIVE.JOYSTICKS) {
+    return { full: false, game: sticksAt(p, 23), pre: sticksAt(p, 15), presses: new Set(), lt: 0, rt: 0, seq: null };
+  }
+  if (p[0] === LIVE.RAW) {
+    const v = (code) => (p[17 + code] & 0x7F) << 5;
+    const presses = new Set();
+    for (let i = 0; i < INPUT_CODES; i++) if (p[17 + i] & 0x80) presses.add(i);
+    const half = (pos, neg) => (v(pos) - v(neg)) / 2;
+    const game = { lx: half(INPUT.LX_RIGHT, INPUT.LX_LEFT), ly: half(INPUT.LY_UP, INPUT.LY_DOWN),
+      rx: half(INPUT.RX_RIGHT, INPUT.RX_LEFT), ry: half(INPUT.RY_UP, INPUT.RY_DOWN) };
+    return { full: false, game, pre: game, presses, lt: v(INPUT.LT_ANALOG), rt: v(INPUT.RT_ANALOG), seq: null };
+  }
+  return null;
+}
+
+// The 253 report for given values: the demo controller and the tests build packets with it
+export function encodeLive({ game, pre, presses = [], lt = 0, rt = 0, seq = 0 }) {
+  const p = new Uint8Array(64);
+  const put = (o, v) => { const c = Math.max(0, Math.min(0xFFFF, Math.round(v) + 2048)); p[o] = c >> 8; p[o + 1] = c & 0xFF; };
+  const putSticks = (o, s) => { put(o, s.lx); put(o + 2, s.ly); put(o + 4, s.rx); put(o + 6, s.ry); };
+  p[0] = LIVE.TECHCHASE;
+  putSticks(15, game);
+  putSticks(23, pre ?? game);
+  for (const c of presses) if (c >= 0 && c < INPUT_CODES) p[31 + (c >> 3)] |= 1 << (c & 7);
+  put(36, lt - 2048);
+  put(38, rt - 2048);
+  p[40] = seq & 0xFF;
+  return p;
+}
+
 export const codeName = (table, c) => (c == null || c < 0 || c === 0xFF) ? null : (table[c] ?? `#${c}`);
 const s8 = (b) => (b > 127 ? b - 256 : b);
 
@@ -44,6 +97,19 @@ export class GcuDevice {
     this.reading = false;
     this.closed = false;
     this.queue = Promise.resolve(); // one command at a time
+    this.liveListeners = new Set();
+  }
+
+  // Calls fn with every live report (see parseLive) until the returned function is called
+  onLive(fn) {
+    this.liveListeners.add(fn);
+    return () => this.liveListeners.delete(fn);
+  }
+
+  // Which live report the controller streams: LIVE.TECHCHASE, JOYSTICKS or RAW. No reply comes back;
+  // firmware without 253 streams RAW instead.
+  setLiveMode(mode) {
+    return this._run(() => this._send([ID_INPUT_COMMAND, 0, mode]));
   }
 
   get productName() { return this.dev.productName; }
@@ -98,6 +164,13 @@ export class GcuDevice {
         }
         if (!r.data || r.data.byteLength === 0) continue;
         const pkt = new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength);
+        if (pkt[0] >= LIVE.TECHCHASE) {
+          if (this.liveListeners.size) {
+            const rep = parseLive(pkt);
+            if (rep) for (const fn of this.liveListeners) fn(rep);
+          }
+          continue;
+        }
         const i = this.waiters.findIndex((w) => w.match(pkt));
         if (i >= 0) {
           const [w] = this.waiters.splice(i, 1);
@@ -148,6 +221,7 @@ export class GcuDevice {
       await this._send([readId, block]);
       let p = await first;
       while (p[3] !== 0xFF) {
+        if (p[2] > p.length - 4) throw new Error(`settings block ${block}: a chunk says ${p[2]} bytes, the packet holds ${p.length - 4}`);
         chunks.push(p.slice(4, 4 + p[2]));
         p = await this._wait((q) => q[0] === readId && q[1] === block, 1500);
       }
@@ -181,6 +255,7 @@ export class GcuDevice {
 
   async stats() {
     const r = await this.command(T.STATS);
+    if (r.length < 42) throw new Error(`latency stats: ${r.length} bytes, 42 expected`);
     const v = new DataView(r.buffer, r.byteOffset + 2);
     const u32 = (o) => v.getUint32(o, true);
     return {
@@ -198,6 +273,7 @@ export class GcuDevice {
     for (let page = 0; page < 16; page++) {
       const r = await this.command(T.MAP, page);
       const count = r[3];
+      if (4 + count * 13 > r.length) throw new Error(`map page ${page}: ${count} entries don't fit in ${r.length} bytes`);
       for (let i = 0; i < count; i++) {
         const e = r.subarray(4 + i * 13, 4 + (i + 1) * 13);
         if (e[0] === 0xFF) continue;

@@ -35,7 +35,7 @@
     <ul class="hints">
       <li>The controller must run the <b>techchase</b> firmware. On official firmware the app can still read it, but can't remap.</li>
       <li>Close <code>gcu.py</code>, HHL's web app and Dolphin first: only one program can talk to the controller at a time.</li>
-      <li>In Slippi mode the app can only connect when the app (or <code>gcu.py</code>) switched the controller into it.</li>
+      <li>In Slippi mode the controller is a plain GameCube adapter, so the app can’t connect. Unplug it to get back to the app.</li>
     </ul>
     <p class="muted"><a href="?demo">Try the demo</a>: it works without a controller.</p>
     <p id="noWebUsb" class="warn" hidden>This browser has no WebUSB. Open this page in Chrome or Edge (desktop or Android).</p>
@@ -50,6 +50,23 @@
       <p class="live-meta"><span id="liveRate">--</span> <span id="liveDrops" class="muted"></span></p>
     </div>
     <p id="liveCoarse" class="warn small" hidden>This firmware streams a coarse view (sticks in steps of about 3 units). Update to the latest techchase firmware for full precision.</p>
+    <div class="calib-bar">
+      <span id="calibHint" class="warn small"></span>
+      <button id="calibL" class="ghost">Calibrate main stick</button>
+      <button id="calibR" class="ghost">Calibrate c-stick</button>
+    </div>
+    <div id="calib" class="calib" hidden>
+      <div class="calib-head"><h3 id="calibTitle"></h3><button id="calibCancel" class="ghost small-btn">cancel</button></div>
+      <div class="calib-body">
+        <svg id="calibPic" viewBox="-60 -60 120 120" role="img" aria-label="Which notch to push into"></svg>
+        <div>
+          <p id="calibStep" class="calib-step"></p>
+          <p id="calibMsg" class="muted"></p>
+          <div id="calibRows" class="calib-rows"></div>
+          <div class="calib-actions"><button id="calibBack" class="ghost small-btn">back one notch</button><button id="calibDone" hidden>Done</button></div>
+        </div>
+      </div>
+    </div>
 
     <div class="live-grid">
       <div class="box stick-box">
@@ -107,7 +124,7 @@
     <div class="controls-head">
       <div>
         <h2>Controls</h2>
-        <p class="muted">Pick a button, then pick the job it should do. It works at once, in every mode (Switch, Slippi, PC); <b>Save to controller</b> keeps it after unplugging.</p>
+        <p class="muted">Pick a button, then pick the job it should do. It works at once, in every mode (Switch, Slippi, PC); <b>Save to controller</b> keeps it after unplugging. Remaps happen on the controller, so keep Dolphin's own mapping plain (the Device tab checks it).</p>
       </div>
       <div id="labelSeg" class="seg" role="radiogroup" aria-label="Labels">
         <button data-labels="smash" aria-pressed="true">Smash actions</button>
@@ -241,9 +258,14 @@
     <p class="muted">The controller restarts its USB connection in the new mode. Your browser may ask you to pick it again.</p>
     <div class="modes">
       <button data-mode="sinput"><b>SInput</b><span>PC games and OpenSmash (through SDL). About 950 reports a second, measured.</span></button>
-      <button data-mode="slippi"><b>Slippi</b><span>GameCube adapter mode. For play in Dolphin, pick Slippi on the controller instead: Dolphin can’t read this app’s Slippi mode.</span></button>
+      <button data-mode="slippi"><b>Slippi</b><span>GameCube adapter mode, for Dolphin and Slippi. The app disconnects; unplug the controller to come back.</span></button>
       <button data-mode="switch"><b>Switch Pro</b><span>Switch and Switch 2 over USB.</span></button>
     </div>
+
+    <h3>Dolphin</h3>
+    <p class="muted">For Melee, put the controller in <b>Slippi</b> mode and set the Dolphin port to <b>GameCube Adapter for Wii U</b>. Dolphin does no button mapping there, so your remaps reach the game exactly as set. A <b>Standard Controller</b> port maps buttons by number, and has to match the controller's numbers in SInput mode.</p>
+    <div id="dolphin" class="dolphin"><p class="muted">Checking Dolphin's settings…</p></div>
+    <button id="dolphinRefresh" class="ghost">Check again</button>
 
     <h3>Settings backup</h3>
     <p class="muted">Every settings block, as a file (same format as <code>gcu.py backup</code>).</p>

@@ -1,5 +1,8 @@
 export const ID_READ_CONFIG_BLOCK = 0x01;
+export const ID_WRITE_CONFIG_BLOCK = 0x02;
 export const ID_READ_STATIC_BLOCK = 0x03;
+export const ID_CONFIG_COMMAND = 0x04;
+const BLOCK_CHUNK = 32;
 export const ID_INPUT_COMMAND = 0x05;
 export const ID_TECHCHASE = 0xC0;
 
@@ -119,7 +122,7 @@ export class GcuDevice {
       }
     }
     if (this.itf === undefined)
-      throw new Error('This device has no config interface. In Slippi mode it only has one when the app or gcu.py switched it there.');
+      throw new Error('This device has no config interface. In Slippi mode the controller is a plain GameCube adapter: unplug it to come back.');
     await d.claimInterface(this.itf);
     this.closed = false;
     this._readLoop();
@@ -215,6 +218,32 @@ export class GcuDevice {
       for (const c of chunks) { out.set(c, o); o += c.length; }
       return out;
     });
+  }
+
+  writeBlock(block, bytes) {
+    return this._run(async () => {
+      for (let at = 0, part = 0; at < bytes.length; at += BLOCK_CHUNK, part++) {
+        const chunk = bytes.subarray(at, at + BLOCK_CHUNK);
+        await this._send([ID_WRITE_CONFIG_BLOCK, block, chunk.length, part, ...chunk]);
+      }
+      await this._send([ID_WRITE_CONFIG_BLOCK, block, 0, 0xFF]);
+    });
+  }
+
+  configCommand(block, cmd) {
+    return this._run(async () => {
+      const reply = this._wait((p) => p[0] === ID_CONFIG_COMMAND && p[1] === block && p[2] === cmd, 1500);
+      await this._send([ID_CONFIG_COMMAND, block, cmd]);
+      const r = await reply;
+      if (!r[3]) throw new Error(`the controller refused settings command ${cmd}`);
+      return r;
+    });
+  }
+
+  async captureStick(cmd) {
+    const r = await this.configCommand(2, cmd);
+    const v = new DataView(r.buffer, r.byteOffset, r.byteLength);
+    return { angle: v.getFloat32(4, true), distance: v.getFloat32(8, true) };
   }
 
   async deviceInfo() {

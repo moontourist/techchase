@@ -4,6 +4,7 @@ import {
 } from './gcu-protocol.js';
 import { makeDemoDevice } from './demo.js';
 import { createLive } from './live.js';
+import { createCalibration } from './calib-ui.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -38,8 +39,24 @@ const state = {
   unsubLive: null,
   savedJobs: null,
   unsaved: false,
+  stayDisconnected: false,
 };
 const liveView = createLive({ root: $('#tab-live'), entries: () => state.entries });
+const calib = createCalibration({ root: $('#tab-live'), getDev: () => state.dev, onChange: () => renderSaveBar(), toast });
+
+function renderCalibButtons() {
+  const ok = !!state.dev && holdsChanges();
+  for (const id of ['#calibL', '#calibR']) {
+    $(id).disabled = !ok;
+    $(id).title = ok ? '' : 'Needs the techchase firmware (protocol 2), which can hold a calibration until you save it.';
+  }
+}
+for (const [id, side] of [['#calibL', 'l'], ['#calibR', 'r']]) {
+  $(id).addEventListener('click', () => {
+    if (calib.step !== 'idle') return;
+    calib.start(side);
+  });
+}
 
 function jobLabel(gcCode, { both = false } = {}) {
   const gc = codeName(GC_CODES, gcCode);
@@ -90,6 +107,8 @@ async function attach(dev) {
   if (!state.unsaved) markSaved();
   renderConnection();
   renderDevice();
+  renderCalibButtons();
+  if (holdsChanges()) calib.refreshHint();
   showTab(currentTab());
   if (!state.info.techchase) toast('Connected. This controller runs official firmware: remapping and latency need the techchase firmware.', 'error');
 }
@@ -124,6 +143,7 @@ function detach(msg) {
   state.unsubLive = null;
   liveView.stop();
   liveView.reset();
+  calib.detach();
   state.dev = null;
   state.entries = [];
   state.selected = null;
@@ -140,7 +160,7 @@ if (navigator.usb) {
     if (state.dev && state.dev.dev === ev.device) detach('Controller unplugged (or restarting its USB).');
   });
   navigator.usb.addEventListener('connect', (ev) => {
-    if (!state.dev) setTimeout(() => guard(() => attach(new GcuDevice(ev.device)), 'Could not reconnect'), 300);
+    if (!state.dev && !state.stayDisconnected) setTimeout(() => guard(() => attach(new GcuDevice(ev.device)), 'Could not reconnect'), 300);
   });
 }
 
@@ -163,9 +183,11 @@ $('#connectBtn').addEventListener('click', async () => {
   if (state.dev) {
     if (hasUnsaved() && !confirm('You have unsaved changes. The controller keeps them until it’s unplugged, then goes back to its saved layout. Disconnect anyway?')) return;
     const d = state.dev;
+    state.stayDisconnected = true;
     detach();
     await d.close();
   } else {
+    state.stayDisconnected = false;
     await connect();
   }
 });
@@ -178,7 +200,85 @@ function showTab(name) {
   if (name === 'profiles') renderProfiles();
   if (name === 'controls' && state.dev) renderControls();
   if (name === 'live' && state.dev) liveView.start(); else liveView.stop();
+  if (name === 'device' && state.dev) renderDolphin();
 }
+
+function el(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text != null) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+}
+
+function dolphinPortLine(inst, p) {
+  const li = el('li');
+  li.append(el('b', `Port ${p.port}: `), p.name);
+  const prof = p.profile;
+  if (p.si === 12) {
+    li.append(el('span', ' · reads the controller in Slippi mode', 'good'));
+  } else if (prof?.reads === 'gcu' && !prof.checkable) {
+    li.append(el('span', ` · reads ${prof.device} through ${prof.backend}; only DirectInput mappings are checked`, 'muted'));
+  } else if (prof?.reads === 'gcu' && prof.wrong.length === 0) {
+    li.append(el('span', ` · reads ${prof.device}, mapping matches SInput`, 'good'));
+  } else if (prof?.reads === 'gcu') {
+    li.append(el('span', ` · reads ${prof.device}: ${prof.wrong.length} input${prof.wrong.length === 1 ? '' : 's'} mapped wrong`, 'bad'));
+    const list = el('div', null, 'wrong');
+    for (const w of prof.wrong.slice(0, 8)) {
+      list.append(el('div', `${w.input} is ${w.has}${w.gets ? ` (the controller's ${w.gets})` : ''}, should be ${w.want}`));
+    }
+    if (prof.wrong.length > 8) list.append(el('div', `and ${prof.wrong.length - 8} more`));
+    li.append(list);
+    const fix = el('button', `Fix port ${p.port}'s mapping`, 'ghost');
+    fix.addEventListener('click', () => fixDolphin(inst, p));
+    li.append(fix);
+  } else if (prof) {
+    li.append(el('span', ` · reads ${prof.device || 'nothing'}`, 'muted'));
+  }
+  return li;
+}
+
+async function renderDolphin() {
+  const box = $('#dolphin');
+  let r;
+  try {
+    const res = await fetch('api/dolphin', { cache: 'no-store' });
+    if (!res.ok) throw new Error(String(res.status));
+    r = await res.json();
+  } catch {
+    box.replaceChildren(el('p', 'The Dolphin check needs the app started from tools/app/serve.py on this computer.', 'muted'));
+    $('#dolphinRefresh').hidden = true;
+    return;
+  }
+  $('#dolphinRefresh').hidden = false;
+  const parts = [];
+  if (!r.installs.length) parts.push(el('p', 'No Dolphin settings found on this computer.', 'muted'));
+  if (r.dolphin_running) parts.push(el('p', 'Dolphin is open. Close it before fixing a mapping: it rewrites its settings when it closes.', 'warn'));
+  for (const inst of r.installs) {
+    const card = el('div', null, 'install');
+    card.append(el('b', inst.label), el('div', inst.path, 'path'));
+    const ul = el('ul');
+    for (const p of inst.ports) ul.append(dolphinPortLine(inst, p));
+    card.append(ul);
+    parts.push(card);
+  }
+  box.replaceChildren(...parts);
+}
+
+async function fixDolphin(inst, p) {
+  if (!confirm(`Rewrite port ${p.port}'s buttons, sticks and triggers in ${inst.label} to match the controller in SInput mode? The old file is backed up next to it first.`)) return;
+  await guard(async () => {
+    const res = await fetch('api/dolphin/fix', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Techchase': '1' },
+      body: JSON.stringify({ install: inst.id, port: p.port }),
+    });
+    const out = await res.json();
+    if (!res.ok) throw new Error(out.error || res.status);
+    toast(`Port ${p.port} fixed. The old settings are in ${out.backup.split(/[\\/]/).pop()}.`, 'ok');
+    await renderDolphin();
+  }, 'Dolphin fix failed');
+}
+$('#dolphinRefresh').addEventListener('click', () => renderDolphin());
 for (const b of $$('.tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
 
 async function refreshMap() {
@@ -201,25 +301,31 @@ function unsavedCount() {
   return state.savedJobs ? remappable(state.entries).filter(isUnsaved).length : null;
 }
 
-function hasUnsaved() {
+function remapsUnsaved() {
   if (!state.dev || !holdsChanges() || !state.unsaved) return false;
   const n = unsavedCount();
   return n === null || n > 0;
+}
+
+function hasUnsaved() {
+  return remapsUnsaved() || (!!state.dev && calib.pending);
 }
 
 function renderSavedState() {
   const n = unsavedCount();
   let text = 'saved on the controller';
   if (!holdsChanges()) text = 'saved with every change (older techchase firmware)';
-  else if (hasUnsaved()) text = n === null ? 'unsaved changes' : `${n} unsaved change${n === 1 ? '' : 's'}`;
+  else if (remapsUnsaved()) text = n === null ? 'unsaved changes' : `${n} unsaved change${n === 1 ? '' : 's'}`;
   $('#devSaved').textContent = text;
 }
 
 function renderSaveBar() {
   $('#saveBar').hidden = !hasUnsaved();
   const n = unsavedCount();
-  const what = n === null ? 'This controller has unsaved changes.' : `${n} unsaved change${n === 1 ? '' : 's'}.`;
-  $('#saveBarText').textContent = `${what} They work now: try them on the Live tab, then save.`;
+  const parts = [];
+  if (remapsUnsaved()) parts.push(n === null ? 'Unsaved button changes.' : `${n} unsaved button change${n === 1 ? '' : 's'}.`);
+  if (state.dev && calib.pending) parts.push('Stick calibration not saved.');
+  $('#saveBarText').textContent = `${parts.join(' ')} Changes work now: try them on the Live tab, then save.`;
   if (state.dev) renderSavedState();
 }
 
@@ -227,6 +333,7 @@ async function keepChanges() {
   await guard(async () => {
     await state.dev.save();
     markSaved();
+    calib.saved();
     renderControls();
     if (currentTab() === 'profiles') renderProfiles();
     toast('Saved to the controller.', 'ok');
@@ -235,12 +342,16 @@ async function keepChanges() {
 
 async function dropChanges() {
   await guard(async () => {
-    await state.dev.revert();
-    await refreshMap();
+    if (calib.step !== 'idle') await calib.cancel();
+    else if (calib.pending) await calib.discard();
+    if (remapsUnsaved()) {
+      await state.dev.revert();
+      await refreshMap();
+    }
     markSaved();
     renderControls();
     if (currentTab() === 'profiles') renderProfiles();
-    toast('Changes discarded. The controller is back to its saved layout.', 'ok');
+    toast('Changes discarded. The controller is back to its saved settings.', 'ok');
   }, 'Discarding failed');
 }
 
@@ -597,6 +708,7 @@ for (const b of $$('.modes button')) {
     const id = MODE_IDS[b.dataset.mode];
     if (id === state.info?.reportFormat) return;
     if (hasUnsaved() && !state.dev.demo && !confirm('Switching USB mode restarts the controller, which drops unsaved changes. Switch anyway?')) return;
+    if (id === MODE_IDS.slippi && !state.dev.demo && !confirm('In Slippi mode the controller is a plain GameCube adapter, so this app disconnects until you unplug it. Switch?')) return;
     const ok = await state.dev.setUsbMode(id);
     if (!ok) throw new Error('the controller refused (is it on USB?)');
     if (state.dev.demo) {
@@ -604,6 +716,9 @@ for (const b of $$('.modes button')) {
       renderDevice();
       renderConnection();
       toast(`Switched to ${FORMATS[id]} (demo).`, 'ok');
+    } else if (id === MODE_IDS.slippi) {
+      state.stayDisconnected = true;
+      toast('Switched to Slippi. Unplug the controller to use the app again.', 'ok');
     } else {
       toast(`Switching to ${FORMATS[id]}… If the controller doesn’t come back by itself, press Connect controller.`);
     }

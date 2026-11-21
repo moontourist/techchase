@@ -1,5 +1,20 @@
 import { encodeLive, parseLive, remappable } from './gcu-protocol.js';
 import { GC_PER_FW } from './melee.js';
+import { ANALOG_BLOCK_SIZE, ANALOG_CMD, CFG_BLOCK_ANALOG, writeSlots } from './calibration.js';
+
+function demoAnalogBlock() {
+  let b = new Uint8Array(ANALOG_BLOCK_SIZE);
+  b[0] = 0x13;
+  b[1] = 1;
+  const v = new DataView(b.buffer);
+  for (let i = 0; i < 4; i++) v.setUint16(2 + i * 2, 2040 << 1, true);
+  const slots = Array.from({ length: 16 }, (_, i) => ({
+    inAngle: i < 8 ? i * 45 + (i % 2 ? 2.5 : -1.5) : 0, outAngle: i < 8 ? i * 45 : 0, deadzone: 2,
+    inDistance: 1450, outDistance: 2048, enabled: i < 8,
+  }));
+  for (const side of ['l', 'r']) b = writeSlots(b, side, slots);
+  return b;
+}
 
 const DEMO_NOTCHES = [[100, 0], [76, 73], [0, 102], [-74, 77], [-101, 0], [-73, -73], [0, -101], [74, -75]];
 const STEP_MS = 1200;
@@ -68,6 +83,40 @@ class DemoDevice {
     this.seq = 0;
     this.saved = this.entries.map((e) => ({ ...e }));
     this.unsaved = false;
+    this.analog = demoAnalogBlock();
+    this.savedAnalog = new Uint8Array(this.analog);
+    this.stick = { l: { angle: 30, distance: 4 }, r: { angle: 200, distance: 6 } };
+    this.calibrating = false;
+    if (typeof window !== 'undefined') window.demoDevice = this;
+  }
+
+  async readBlock(readId, block) {
+    if (readId === 1 && block === CFG_BLOCK_ANALOG) return new Uint8Array(this.analog);
+    throw new Error(`the demo has no block ${block}`);
+  }
+
+  async writeBlock(block, bytes) {
+    if (block !== CFG_BLOCK_ANALOG) throw new Error(`the demo can't write block ${block}`);
+    this.analog = new Uint8Array(bytes);
+  }
+
+  async configCommand(block, cmd) {
+    if (block !== CFG_BLOCK_ANALOG) throw new Error(`the demo has no settings command for block ${block}`);
+    if (cmd === ANALOG_CMD.CALIBRATE_START) {
+      this.calibrating = true;
+      const v = new DataView(this.analog.buffer);
+      for (let i = 0; i < 4; i++) v.setUint16(2 + i * 2, (2048 + i) << 1, true);
+    } else if (cmd === ANALOG_CMD.CALIBRATE_STOP) {
+      this.calibrating = false;
+      this.analog[1] = 1;
+    }
+    return new Uint8Array([4, block, cmd, 1]);
+  }
+
+  async captureStick(cmd) {
+    const s = this.stick[cmd === ANALOG_CMD.CAPTURE_LEFT ? 'l' : 'r'];
+    const jitter = () => (Math.random() - 0.5) * 0.2;
+    return { angle: (s.angle + jitter() + 360) % 360, distance: s.distance + jitter() * 10 };
   }
 
   onLive(fn) {
@@ -136,7 +185,7 @@ class DemoDevice {
     this._keep(save);
   }
 
-  async save() { this._keep(true); }
+  async save() { this._keep(true); this.savedAnalog = new Uint8Array(this.analog); }
 
   async revert() {
     this.entries = this.saved.map((e) => ({ ...e }));

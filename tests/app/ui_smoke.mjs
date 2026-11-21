@@ -1,9 +1,18 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const APP = 'http://127.0.0.1:8474/';
+const APP_PORT = 8475;
+const APP = `http://127.0.0.1:${APP_PORT}/`;
+const dolphinRoot = mkdtempSync(join(tmpdir(), 'gcu-dolphin-'));
+const dolphinConfig = join(dolphinRoot, 'slippi', 'Config');
+mkdirSync(dolphinConfig, { recursive: true });
+writeFileSync(join(dolphinConfig, 'Dolphin.ini'), '[Core]\r\nSIDevice0 = 12\r\nSIDevice1 = 6\r\n');
+writeFileSync(join(dolphinConfig, 'GCPadNew.ini'), '[GCPad2]\r\nDevice = DInput/0/GCU 1\r\nButtons/A = `Button 1`\r\nButtons/X = `Button 0`\r\n');
+const server = spawn(process.env.PYTHON || 'python', ['-I', join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'tools', 'app', 'serve.py'),
+  '--no-browser', '--port', String(APP_PORT), '--dolphin-root', dolphinRoot], { stdio: 'ignore' });
 const CHROME = process.env.CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const shots = process.argv[2];
 const PORT = 9333;
@@ -91,7 +100,7 @@ try {
   check(await until(`document.querySelector('#picker').hidden && document.querySelector('#pad [data-name=ZR]').classList.contains('changed')`), 'assign closes the picker and marks ZR changed');
   check(await js(`[...document.querySelectorAll('#rows li')].some(li => /ZR\\s*Jump\\s*unsaved/.test(li.textContent))`), 'list shows ZR -> Jump (unsaved)');
   check(await js(`/ZR now does Jump.*Not saved yet/.test(document.querySelector('#toast').textContent)`), 'toast says it is not saved yet');
-  check(await js(`!document.querySelector('#saveBar').hidden && /1 unsaved change\\./.test(document.querySelector('#saveBarText').textContent)`), 'save bar shows 1 unsaved change');
+  check(await js(`!document.querySelector('#saveBar').hidden && /1 unsaved button change\\./.test(document.querySelector('#saveBarText').textContent)`), 'save bar shows 1 unsaved change');
   check(await js(`document.querySelector('#pad [data-name=ZR]').classList.contains('unsaved')`), 'ZR drawn as unsaved');
   await shot('controls-unsaved');
   await js(`document.querySelector('#discardBtn').click()`);
@@ -138,6 +147,52 @@ try {
   check(await js(`/unsaved change/.test(document.querySelector('#devSaved').textContent)`), 'device tab counts the unsaved reset');
   await js(`document.querySelector('#saveBtn').click()`);
   check(await until(`document.querySelector('#devSaved').textContent === 'saved on the controller'`), 'device tab says saved after saving');
+  check(await until(`/Port 1: GameCube Adapter for Wii U/.test(document.querySelector('#dolphin').textContent)`), 'dolphin check lists the adapter port');
+  check(await js(`/reads the controller in Slippi mode/.test(document.querySelector('#dolphin').textContent)`), 'dolphin check marks the adapter port good');
+  check(await js(`/A is Button 1 \\(the controller's X\\), should be Button 0/.test(document.querySelector('#dolphin').textContent)`), "dolphin check names the wrong mapping");
+  const dolphinOpen = await js(`/Dolphin is open/.test(document.querySelector('#dolphin').textContent)`);
+  if (dolphinOpen) {
+    console.log('SKIP  fixing the mapping (Dolphin is open on this computer)');
+  } else {
+    await js(`window.confirm = () => true; [...document.querySelectorAll('#dolphin button')].find((b) => /Fix port 2/.test(b.textContent)).click()`);
+    check(await until(`/mapping matches SInput/.test(document.querySelector('#dolphin').textContent)`), 'fixing port 2 makes its mapping match');
+    check(readdirSync(dolphinConfig).some((f) => /^GCPadNew\.ini\.techchase-.*\.bak$/.test(f)), 'the fix leaves a backup');
+    check(await js(`/old settings are in GCPadNew\\.ini\\.techchase-/.test(document.querySelector('#toast').textContent)`), 'the toast names the backup file');
+  }
+  await shot('device');
+  const forged = await fetch(`${APP}api/dolphin/fix`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'http://evil.example' }, body: '{"install":"slippi","port":2}' });
+  check(forged.status === 403, 'the server refuses a fix from another origin');
+
+  await js(`document.querySelector('[data-tab=live]').click()`);
+  const slotAngle = (side, i, which = 'analog') => js(`(async () => (await import('./calibration.js')).readSlots(window.demoDevice.${which}, '${side}')[${i}].inAngle)()`);
+  const savedRight = await js(`Array.from(window.demoDevice.analog.slice(346, 682)).join(',')`);
+  await js(`window.demoDevice.stick.l = { angle: 30, distance: 4 }; document.querySelector('#calibL').click()`);
+  check(await until(`!document.querySelector('#calib').hidden`), 'calibrate opens the wizard');
+  check(await until(`/right notch/.test(document.querySelector('#calibStep').textContent)`, 5000), 'after the center, it asks for the first notch');
+  check(await js(`!document.querySelector('#saveBar').hidden && /Stick calibration not saved/.test(document.querySelector('#saveBarText').textContent)`), 'the save bar shows the calibration as unsaved');
+  await js(`window.demoDevice.stick.l = { angle: 120, distance: 1500 }`);
+  check(await until(`/different notch/i.test(document.querySelector('#calibMsg').textContent)`, 3000), 'a hold in the wrong notch is refused');
+  for (let i = 0; i < 8; i++) {
+    await js(`window.demoDevice.stick.l = { angle: ${(i * 45 + 1.5 + 360) % 360}, distance: ${1500 + i} }`);
+    const next = i < 7 ? `/Notch ${i + 2} of 8/.test(document.querySelector('#calibMsg').textContent)` : `!document.querySelector('#calibDone').hidden`;
+    if (!(await until(next, 4000))) { check(false, `notch ${i + 1} is captured`); break; }
+  }
+  check(await until(`!document.querySelector('#calibDone').hidden`), 'after eight notches the wizard shows the check step');
+  check(Math.abs((await slotAngle('l', 2)) - 91.5) < 0.3, 'the up notch is written at its captured angle');
+  await js(`[...document.querySelectorAll('#calibRows button')][1].click()`);
+  check(await until(`(async () => Math.abs((await import('./calibration.js')).readSlots(window.demoDevice.analog, 'l')[0].inAngle - 2.0) < 0.3)()`), 'turning a notch writes it half a degree on');
+  await shot('calibration');
+  await js(`document.querySelector('#calibDone').click(); document.querySelector('#saveBtn').click()`);
+  check(await until(`document.querySelector('#saveBar').hidden`), 'saving clears the bar');
+  check(Math.abs((await slotAngle('l', 2, 'savedAnalog')) - 91.5) < 0.3, 'the calibration is saved on the controller');
+  check(await js(`Array.from(window.demoDevice.analog.slice(346, 682)).join(',')`) === savedRight, 'the other stick is untouched');
+
+  const before = await js(`Array.from(window.demoDevice.analog).join(',')`);
+  await js(`window.demoDevice.stick.l = { angle: 0, distance: 3 }; window.demoDevice.stick.r = { angle: 10, distance: 5 }; document.querySelector('#calibR').click()`);
+  check(await until(`/right notch/.test(document.querySelector('#calibStep').textContent)`, 5000), 'the c-stick wizard starts');
+  await js(`document.querySelector('#calibCancel').click()`);
+  check(await until(`document.querySelector('#calib').hidden && document.querySelector('#saveBar').hidden`), 'cancel closes the wizard and the bar');
+  check(await until(`Array.from(window.demoDevice.analog).join(',') === ${JSON.stringify(before)}`), 'cancel restores the settings byte for byte');
 
   const errs = events.filter((e) => e.method === 'Runtime.exceptionThrown' || (e.method === 'Runtime.consoleAPICalled' && e.params.type === 'error'));
   check(errs.length === 0, `no console errors${errs.length ? `: ${JSON.stringify(errs[0].params).slice(0, 300)}` : ''}`);
@@ -147,6 +202,7 @@ try {
 } finally {
   try { ws?.close(); } catch {  }
   chrome.kill();
+  server.kill();
 }
 console.log(failures ? `${failures} FAILED` : 'all passed');
 process.exit(failures ? 1 : 0);

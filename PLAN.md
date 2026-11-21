@@ -46,7 +46,7 @@ real comparison):
 ## Name, repo and rules
 * **Name and mark:** techchase, drawn as `[tc]`, the way thunk is `[*]` and seethe is `[s]`.
 * **Look:** the same family as thunk, seethe, wave and tascii (monospace, square boxes, bracketed
-  choices), in Ghostty's **Nord** palette (14f; Dracula until then). JetBrains Mono.
+  choices), in Ghostty's **Nord** palette (14f). JetBrains Mono.
 * **Repo:** public, README in the thunk/seethe/wave format (banner, what it does, install,
   controls, how it's built, develop, roadmap, credits).
 * **Code rules:** the `scadoshi-rust` rules (from scadoshi's zwipe, as copied into wave, thunk and
@@ -185,10 +185,8 @@ Findings:
   only polled every 2–3 frames. Late-latch detects that (take interval > 1.3 ms) and keeps stock
   timing, so it does no harm but gives no gain there. Whether Slippi Dolphin reads at 1 kHz on this
   PC is unconfirmed: Dolphin holds the adapter exclusively, so the stats can't be read while it runs.
-* **Slippi mode switched there by an app (this tool or HHL's web app) doesn't work in Dolphin.**
-  The config interface added beside the adapter makes Dolphin's endpoint scan pick the wrong IN
-  endpoint (0 reports in Dolphin, even in-game). This is upstream behaviour. Selecting Slippi mode on
-  the controller itself (no config interface) is what's used for play.
+* **Slippi mode switched there by an app used to break Dolphin** (upstream behaviour). Fixed in 14c:
+  Slippi mode is now always the plain adapter, however it was picked.
 * The device now names itself "GCU 1" (upstream renamed gcu_r4k → gcu_1; the official Nov image does
   the same). Don't accept the web app's firmware-update prompt unless rolling back.
 
@@ -365,7 +363,7 @@ Phase 7; nothing here changes how the controller behaves.
 * [x] **12b Names.** Every "Tourney" name this project added is now techchase: the protocol ID
   (`WEBUSB_ID_TECHCHASE`, still `0xC0`), the `TC_CMD_*` commands, the app, the tools. The protocol
   bytes didn't change, so the firmware on the controller needs no reflash for this.
-* [x] **12c Theme.** Dracula, see Phase 6 status. Moving to Nord in 14f.
+* [x] **12c Theme.** Dracula, see Phase 6 status. Nord since 14f.
 * [ ] **12d Code audit.** Hold every file this project wrote to `CONTRIBUTING.md`: unexplained
   casts, unchecked buffer indexes in the WebUSB handler, Python errors that print a traceback to a
   player. Comments are done: on 2026-11-21 every comment this project wrote was removed (HHL's own
@@ -475,99 +473,107 @@ correct and connected at a tournament, and 14d and 14e are the calibration half 
     * protocol test: an unsaved change reads back, Revert undoes it, and Save keeps it
     * UI test: the bar appears and clears
     * by hand: a saved change survives a replug
-* [ ] **14b Dolphin reads a remapped L as A.**
+* [x] **14b Dolphin reads a remapped L as A.** Done 2026-11-21.
   * Reported: after L was remapped to X, Slippi Dolphin read L as A.
-  * Checked, and not the fault:
-    * The app sends input codes (L 10, X 1).
-    * The firmware gives L the X button's default output in every mode: GameCube X in the
-      GameCube and Slippi profile, `SINPUT_CODE_EAST` in SInput. The protocol test reads that
-      back.
-    * SInput tells the PC it's a GameCube pad labeled A, X, B, Y. Physical A goes out as report
-      bit 0 and physical X as bit 1.
-  * Found:
-    * Slippi Dolphin's port 1 isn't the adapter path. It's a Standard Controller reading the GC
-      Ultimate over DirectInput (`DInput/0/GCU 1` in netplay `GCPadNew.ini`, saved 2026-11-21
-      13:24, 20 minutes after the flash, so in SInput mode).
-    * That profile maps by DirectInput button number: GC A = `Button 1`, X = `Button 0`, Z = 7,
-      Start = 9, D-pad 12 to 15, and L and R from analog axes.
-    * SInput's own bits differ: A 0, X 1, Z 11, Start 16, D-pad 4 to 7. So either Windows numbers
-      the buttons in another order than the report bits, or the profile was recorded in another
-      USB mode.
-    * Either way, a remap changes which number a physical button sends. A Dolphin profile recorded
-      before the remap then reads it as a different GameCube button. With GC A on `Button 1`,
-      the X button's number, L (now sending X) reads as A.
-    * If that holds, physical A and X are also swapped in this profile.
-  * Next:
-    1. Confirm with the controller in SInput mode: a small script reads Windows' joystick API
-       (`joyGetPosEx` through `ctypes`, nothing to install) and prints which button number each
-       physical button sends, before and after the remap. Windows' Game Controllers panel
-       (`joy.cpl`) shows the same by hand.
-    2. If the numbers move as above, it's a setup problem, not a firmware bug.
-       * The app gets a Dolphin check: it finds Slippi Dolphin's `Dolphin.ini` and
-         `GCPadNew.ini` and shows which port reads the controller and how.
-       * For Melee it recommends Slippi mode with the port set to "GameCube Adapter for Wii U".
-         There Dolphin does no mapping, remaps can't be misread, and late-latch runs in Slippi
-         mode.
-       * For a Standard Controller it offers to write a profile matching the controller's
-         numbers, after backing up the old one.
-       * The remap screen says remaps happen on the controller, so Dolphin's mapping should
-         stay plain.
-    3. If a button sends the wrong bit, it's a firmware bug. Fix it, and add an output check:
-       for each USB mode, what the PC receives when each physical button is pressed.
-* [ ] **14c Slippi mode keeps dropping in Dolphin.**
+  * **Not a firmware bug.** `tools/button_check.py` read each physical press from the live report
+    and Windows' joystick view together. Windows gets exactly the SInput bits (A 0, X 1, Y 3,
+    D-pad 4 to 7, Z 11, L 12, R 13, Start 16; SInput has 32 buttons and no hat). Slippi Dolphin's
+    port-1 Standard Controller profile was recorded for another numbering (Start 9, D-pad 12 to
+    15): it read A as X, X as A, D-Right as Z, and L and R as D-pad. A remap to X sends X's
+    number, which that profile read as A. Its C-stick axes were swapped too.
+  * The axes, from SInput's report layout: left stick X and Y, C-stick `Axis Z` (left, right) and
+    `Axis Zr` (up, down), left trigger `Axis Xr`, right trigger `Axis Yr`. Up is negative.
+  * **Built:**
+    * `tools/dolphin_setup.py` finds Slippi Dolphin's and Dolphin's settings and shows each port:
+      adapter, or a Standard Controller and what it reads. A DirectInput mapping of the GC
+      Ultimate is checked input by input ("Buttons/A is Button 1, the controller's X, should be
+      Button 0"). It can rewrite a port to match SInput, after copying `GCPadNew.ini` to a
+      timestamped `.bak`, and refuses while Dolphin is open (Dolphin rewrites the file on exit).
+    * The app's Device tab shows the same, with a Fix button. `serve.py` serves it at
+      `/api/dolphin`; the fix only answers the app's own page (same origin plus a custom header),
+      so another website can't change Dolphin's settings. The GitHub Pages copy says the check
+      needs `serve.py`.
+    * The Device tab recommends Slippi mode with the port on "GameCube Adapter for Wii U" for
+      Melee: Dolphin does no mapping there, so remaps can't be misread. The Controls screen says
+      remaps happen on the controller, so Dolphin's mapping should stay plain.
+  * The owner's port 1 is now on the adapter (Slippi mode works since 14c).
+  * Tests: `tests/dolphin_setup_test.py` (19 checks on a throwaway copy, including the backup
+    and other ports staying untouched); the UI test checks the Device tab, the fix and that a
+    request from another origin is refused.
+* [x] **14c Slippi mode keeps dropping in Dolphin.**
   * Reported 2026-11-21: in Slippi mode, Dolphin's adapter keeps switching between polling and
     not polling, so it never settles on a GameCube controller in port 1.
-  * Checked: after a 150 ms settle at start, every Slippi report marks port 1 as plugged in
-    (`0x14`). The controller isn't announcing a disconnect, so the reads themselves stall.
-  * Suspects, most likely first, each with a test that rules it in or out:
-    1. **Late-latch holds a report too long.** Dolphin reads unevenly (WinUSB without RAW_IO,
-       about 470 reads a second). `slippi_poll_ab.py` only ever tested a steady 1 kHz. Test: in
-       Slippi mode, turn late-latch off on the Latency tab. If Dolphin settles, this is it.
-    2. **The app shares the USB link.** With the app connected, the live report (125 a second)
-       and commands go over the config interface next to the adapter endpoint. Test: close the
-       app, then replug.
-    3. **Two adapters with one ID.** The Lossless adapter and the GC Ultimate in Slippi mode are
-       both `057E:0337`, and Dolphin opens the first it finds. Test: unplug the Lossless adapter.
-    4. **A USB reset loop.** Test: log Windows device events while Dolphin runs and look for the
-       controller leaving and coming back.
-  * Then a regression test that polls the way Dolphin does (uneven gaps, no RAW_IO, Dolphin's
-    read timeout) for a minute, and fails on any stall.
-  * If it's late-latch: a read is never held back past the next expected poll, and late-latch
-    drops to stock timing while polls are uneven, as it already does over the GameCube port.
+  * **Cause 1, the main one: Dolphin read the wrong endpoint.** When the app or `gcu.py` picked
+    Slippi mode, HHL's firmware added the app's config interface after the adapter. Dolphin's
+    `AddGCAdapter` (Slippi and mainline alike) keeps the last IN and OUT endpoints in the
+    descriptor, whatever their interface or type, so it read the app's bulk endpoint (`0x83`)
+    instead of the adapter's (`0x82`). The controller counted 0 adapter reads with Dolphin's
+    config window open. Picking Slippi on the controller never had this: no config interface.
+    * Listing the config interface first while keeping the adapter as interface 0 was tried:
+      Windows rejects it ("Invalid Configuration Descriptor").
+    * **Fix:** Slippi mode is always the plain adapter (`usb_hal.c`, rp2040 and nrf52). The app
+      and `gcu.py` say so before switching; unplugging brings the controller back to them.
+    * `tests/slippi_dolphin_poll.py` now fails when Dolphin's endpoint pick isn't the adapter's.
+  * **Cause 2: messages to the app blocked the game's reports.** Each one went through
+    `hhl_tusb_webusb_report_send`, which waits up to 256 ms for the app to collect the last one,
+    on the loop that also sends the game's reports. The poll test saw 7 reads in a row time out
+    at Dolphin's 32 ms after any command. No longer reachable in Slippi mode, but the same wait
+    hits SInput games while the app is open and not reading.
+    * **Fix:** the USB sink in `webusb.c` never waits. Live reports are skipped while the app is
+      behind; replies and block chunks wait in a 48-message queue the task loop sends from. A
+      full queue means the app is gone, so the stream stops; the queue clears when a session
+      starts or ends.
+    * Checked on build 1795301007: poll test 30 s with late-latch on and off, no timeouts,
+      longest read 2.9 ms; protocol test, live check and a full backup all pass.
+  * Also fixed in the app: after Disconnect, it no longer reconnects by itself when the
+    controller re-enumerates.
+  * Ruled out: late-latch (stalls were the same on and off), and the controller announcing a
+    disconnect (every report marks port 1 plugged in after a 150 ms settle).
+  * Flashed 2026-11-21 (build 1795303483): poll test passes (30 s, no timeouts, longest read 2.3 ms),
+    and the owner confirmed Dolphin holds port 1 steady.
 * [ ] **14d Guided calibration, GC Ultimate.**
   * Found: the Live tab shows how far each notch is off but has no way to fix it.
-  * Building blocks:
-    * HOJA's analog commands `ANALOG_CMD_CALIBRATE_START` (capture the center, then the range
-      while the stick turns) and `ANALOG_CMD_CALIBRATE_STOP`.
-    * `ANALOG_CMD_CAPTURE_JOYSTICK_LEFT`/`RIGHT`, which return a held position's angle and
-      distance for notch setup.
-    * The analog settings block, which the app already reads and writes for backups.
-    * The 253 live report and the notch check.
-  * Research first:
-    * the analog block's layout (notch angles, distances, center, `analog_calibration_set`)
-    * how HHL's calibration page turns a capture into saved notch angles
-    * what the game sees while calibration runs
-  * The wizard, for each stick, from a Calibrate button on the Live tab:
-    1. Back up the analog block.
-    2. **Center:** "Let go of the stick." The app waits until the live report holds still,
-       then starts calibration.
-    3. **Range:** "Roll the stick around the rim slowly." A ring fills in as each slice of the
-       circle is reached. Next turns on when it's full.
-    4. **Notches:** a picture shows which notch to push into next. Holding still for 0.25 s
-       captures it, all eight in order.
-    5. **Check:** the notch check runs by itself and shows Melee coordinates against 1.0000 and
-       0.7000. A notch that's off can be nudged a step at a time, with the readout updating
-       live.
-    6. **Save to controller**, on the same bar as remaps (14a), writes flash once. **Cancel**
-       or a disconnect restores the backup. The owner's test found there's no way to save a
-       calibration today, so the wizard isn't finished until its result survives a replug.
-  * On connect: if the controller says it was never calibrated, or the notch check finds a notch
-    more than one unit off, offer "Calibrate your sticks (about 2 minutes)".
-  * Snapback, deadzone and trigger setup stay as they are, and come later.
-  * Tests:
-    * the demo controller simulates a calibration
-    * the UI test runs the wizard from start to finish
-    * by hand, the result compared with GTS (15c)
+  * **Research, 2026-11-21 (HHL's `analog.c` and `stick_scaling.c`):**
+    * The analog block (block 2, 1024 bytes, packed) holds the four centers (15 bits each, after
+      an invert bit) at byte 2, then 16 notch slots per stick (21 bytes each: `in_angle`,
+      `out_angle`, `deadzone`, `in_distance`, `out_distance` as floats, then `enabled`) at bytes
+      10 and 346.
+    * A slot maps the raw angle where the stick sits (`in_angle`) to an ideal direction
+      (`out_angle`), and scales distance by `out_distance / in_distance`. Between slots it
+      interpolates; `deadzone` is an angular snap (GameCube and Slippi modes cap it at 4°
+      on cardinals and zero it on diagonals).
+    * `CALIBRATE_START` measures both sticks' centers once, resets every slot's distance and
+      the curve, and zeroes the sticks' output; rolling the stick then records the furthest
+      distance near each slot. `CALIBRATE_STOP` applies it and marks the sticks calibrated.
+    * `CAPTURE_JOYSTICK_LEFT`/`RIGHT` return the raw angle and distance (centered) on demand.
+    * Writing a block over USB (32-byte chunks, then an end chunk) changes the live settings and
+      re-runs the stick setup at once; nothing reaches flash until a save.
+  * **So the wizard needs no firmware change**, and skips the rim roll: a notch's raw angle and
+    distance, captured with the stick held in it, are exactly that slot's `in_angle` and
+    `in_distance`, so the notch reads as the ideal direction at full distance.
+  * **Built (app):** a Calibrate button for each stick on the Live tab.
+    1. The analog block is backed up.
+    2. **Center:** "Let go of both sticks." Once both read still and near center, start and stop
+       calibration 0.2 s apart, then write the old block back with only the new centers, so the
+       old notches and curve stay while the wizard runs.
+    3. **Notches:** a picture marks the next notch; holding still for a quarter second (within
+       1° and 20 counts) captures it. A hold short of the rim or in the wrong notch is refused
+       with the reason. Back redoes one.
+    4. The eight notches are written as slots 0 to 7 (deadzone and output distance carried
+       over); extra slots are turned off.
+    5. **Check:** the Live tab's notch check, and each notch can be turned half a degree at a
+       time, written live.
+    6. The save bar says "Stick calibration not saved": **Save to controller** writes flash
+       once (with any remaps); **Discard** or Cancel writes the backup back. Needs protocol 2.
+    * On connect, if the controller says its sticks were never calibrated, the Live tab says so.
+  * Not done yet: offering calibration when the notch check finds a notch more than one unit off,
+    and snapback, deadzone and trigger setup (later).
+  * Tests: `tests/app/calibration_test.mjs` (22 checks of the block layout and math); the UI test
+    runs the wizard on the demo controller (center, a refused wrong notch, eight notches, a turn,
+    save; and a cancel that restores the block byte for byte); the protocol test reads the
+    block, captures both sticks and writes the block back unchanged.
+  * Left: the protocol test on the controller, then the owner's run by hand, checked against GTS
+    (15c) and surviving a replug.
 * [ ] **14e Guided calibration, Phob.**
   * A Phob takes no commands over USB. It calibrates with button combos on the controller (A,
     X, Y plus L or R, then A for each point, then notch adjustment).
@@ -581,7 +587,15 @@ correct and connected at a tournament, and 14d and 14e are the calibration half 
     notch adjustment.
   * Build: once the Rust USB crate reads the adapter (14i), since a browser can't. This is 13c;
     the two are one step.
-* [ ] **14f Nord theme.** Move the app and the README from Dracula to Ghostty's Nord theme.
+* [x] **14f Nord theme.** Move the app and the README from Dracula to Ghostty's Nord theme.
+  * Done 2026-11-21. Palette checked against Ghostty's theme file (`ghostty/Nord` in
+    iTerm2-Color-Schemes): as listed below, except its bright black is `#596377`.
+  * Text: primary `#d8dee9` (9.3x), subtle `#b8c1d1` (6.9x), muted `#9aa3b5` (4.9x); border
+    `#6b7589` (2.7x; Nord's `#596377` is 2.07x, under the 2.1x floor). Accents: frost `#88c0d0`
+    (headings, buttons), purple `#b48ead`, teal `#8fbcbb`; changed is orange `#d08770`.
+  * Every color is a variable now, the controller drawing's included (`--pad-*`); no hex is left
+    in a rule. A, B and C keep their GameCube colors in Nord's green, red and yellow.
+  * README banner re-rendered, screenshot retaken (the live view). UI test passes.
   * Palette, from Ghostty's bundled `Nord` theme (check against the theme file when building):
     * background `#2e3440`, foreground `#d8dee9`
     * Polar Night `#3b4252` `#434c5e` `#4c566a`
@@ -627,6 +641,34 @@ correct and connected at a tournament, and 14d and 14e are the calibration half 
 * [ ] **14l Retire the copies.** Delete the JavaScript protocol module and the Python tools once the
   Rust CLI and the WebAssembly build cover them. The test suites move to `cargo test` plus the UI
   smoke test.
+* [ ] **14m Phob parity.** Asked for 2026-11-21: a player connects a Phob and sets it up just as
+  they set up a GC Ultimate, in the same app. This comes after the Rust rebuild because only the
+  desktop app can read a Phob (through a GameCube adapter, 14i). Phase 13 and 14e are its first
+  parts; this step is the rest, feature by feature.
+  * The app knows which controller it has (GC Ultimate over its own USB, or a controller on an
+    adapter port) and shows each feature that works for it. A feature that can't work says why,
+    in one line, instead of disappearing.
+  * Feature by feature, the GC Ultimate's way and the Phob's:
+    * **Live view and notch check:** the same screens, fed by adapter polls (13b).
+    * **Calibration:** the Phob's own button combos, guided step by step (14e), then the same
+      check and the same GTS comparison (15c).
+    * **Snapback, smoothing, triggers:** guided combos with each value decoded from the reports
+      (13c).
+    * **Latency:** measured the same way, and a joybus late-latch if the Phob reads early (13e).
+    * **Dolphin check:** the same; a Phob on an adapter wants the adapter port setting.
+    * **Profiles:** the Phob keeps its settings itself, so the app saves a record of them (read
+      during the guided steps) that a player can follow to set the Phob up again.
+    * **Remapping:** may not be possible. Remapping is a firmware feature, and PhobGCC changes
+      settings only through combos. To find out in 13a: which swaps or options PhobGCC's combos
+      offer at all. Routes, most practical first:
+      1. whatever PhobGCC itself offers, guided like the other combos
+      2. remap support proposed upstream to PhobGCC-SW, alongside the serial settings of 13d
+      3. HOJA with the techchase patches on the Phob (13a's `phob_2` check), which brings every
+         GC Ultimate feature, for players willing to change firmware
+      4. remapping in software (a Dolphin Standard Controller profile), which works in Dolphin
+         only and not on a console, so the app says so
+  * Done when a Phob owner can go through the same tabs as a GC Ultimate owner, with each
+    difference explained on screen.
 * Later, not now: rewriting the screens themselves in Rust (Dioxus, as scadoshi's `orangui` uses).
   It's worth it only if the JavaScript UI starts to hurt.
 

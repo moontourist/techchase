@@ -27,6 +27,10 @@ Phob support is next.
 - **Remapping.** A picture of your controller: click a button, pick its job, labeled with Smash
   actions (Attack, Special, Jump, Grab, Shield) or GameCube names. Named profiles, a live latency
   view with a one-click A/B test, USB mode switching and settings backup.
+- **Dolphin check.** Shows how each Dolphin port reads the controller. For Melee, Slippi mode with
+  the port on "GameCube Adapter for Wii U" means Dolphin does no mapping, so remaps reach the game
+  as set. A Standard Controller port with the wrong button numbers can be fixed in one click (the
+  old settings are backed up first).
 - **Same settings as HHL's.** No settings layout changed, so HHL's web app still does calibration,
   RGB and snapback, and going back to official firmware keeps your setup.
 
@@ -74,10 +78,15 @@ and JavaScript over WebUSB, with no build step. The tools are Python.
 | `firmware/*.sh` | Clone and patch upstream, or export the patches from a working checkout |
 | `tools/app/` | The app: `index.html`, `app.js`, `gcu-protocol.js` (the USB protocol), `style.css` |
 | `tools/app/live.js` | The live view: sticks, triggers, buttons, notch check, oscilloscope |
+| `tools/app/calibration.js`, `calib-ui.js` | Guided stick calibration: the analog settings layout, notch capture, and the wizard |
 | `tools/app/melee.js` | GameCube and Melee stick math, checked against GTS readings |
 | `tools/gcu.py` | Command line: info, stats, A/B test, map, remap, reset, mode, backup |
+| `tools/dolphin_setup.py` | The Dolphin check, for the app and on its own: which port reads the controller, and fixing a mapping |
+| `tools/button_check.py` | Press each button: what Windows receives, and what a Dolphin profile reads it as |
 | `tools/slippi_poll_ab.py` | Polls like Slippi Dolphin at 1 kHz and A/B tests the late-latch |
 | `tests/sim_latch.c` | Runs the real late-latch code on a PC against simulated polls |
+| `tests/slippi_dolphin_poll.py` | Polls Slippi mode exactly as Slippi Dolphin does, and fails on anything Dolphin would see as a drop |
+| `tests/dolphin_setup_test.py` | The Dolphin check and fix, on a throwaway copy of Dolphin's settings |
 | `tests/app/` | Protocol test on a real controller, Melee math test, and a UI test in headless Chrome |
 | `assets/` | The README banner (`render.mjs`) and screenshot |
 | `PLAN.md` | The plan, phase by phase, with the measurements |
@@ -96,11 +105,13 @@ gcc -O2 -Wall -Wextra -DPICO_RP2040 -Itests/stubs \
   tests/sim_latch.c upstream/hoja-device-fw/library/HOJA-LIB-RP2040/src/utilities/latch.c -o sim_latch
 ./sim_latch                                        # late-latch simulation
 
-python tools/app/serve.py --no-browser --port 8474 &
-node tests/app/ui_smoke.mjs                        # UI test, headless Chrome
+node tests/app/ui_smoke.mjs                        # UI test, headless Chrome (starts its own server)
+python tests/dolphin_setup_test.py                 # Dolphin check and fix, on a throwaway copy
+node tests/app/calibration_test.mjs                # stick calibration math and settings layout
 node tests/app/melee_test.mjs                      # Melee coordinates against GTS readings
 cd tests/app && npm install && node protocol_test.mjs   # needs the controller; restores your layout
 node tests/app/live_check.mjs                      # live report from the controller, 2 s
+.venv/bin/python tests/slippi_dolphin_poll.py      # controller in Slippi mode, Dolphin closed
 
 python -m venv .venv && .venv/bin/pip install -r tools/requirements.txt
 ```
@@ -114,7 +125,7 @@ Done:
 
 - [x] **Late-latch** over USB, measured on hardware in SInput and Slippi modes.
 - [x] **Quick Remap** on the controller, and one remap for every mode.
-- [x] **The app**: live view, controls, profiles, latency and device screens, in Dracula.
+- [x] **The app**: live view, controls, profiles, latency and device screens, in Nord.
 - [x] **Command-line tools** and a Slippi-style A/B poller.
 
 Next:
@@ -136,7 +147,7 @@ Next:
 Built on [HOJA](https://github.com/HandHeldLegend/hoja-device-fw) by Hand Held Legend, with the
 [Pico SDK](https://github.com/raspberrypi/pico-sdk) and [TinyUSB](https://github.com/hathach/tinyusb).
 [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) (SIL OFL 1.1) and the
-[Dracula](https://draculatheme.com) palette (MIT). Code rules from scadoshi's `scadoshi-rust`.
+[Nord](https://www.nordtheme.com) palette (MIT), as Ghostty ships it. Code rules from scadoshi's `scadoshi-rust`.
 
 [CC BY-NC-SA 3.0](LICENSE), the same as HOJA: share it and change it, credit the authors, keep it
 non-commercial, and share changes under the same license.

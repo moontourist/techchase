@@ -10,7 +10,7 @@ const chromePath = process.env.CHROME ?? (process.platform === 'win32'
   : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
 const PORT = 9334;
 
-const C = { bg: '#282a36', text: '#f8f8f2', dim: '#909cbc', inner: '#ff79c6', title: '#bd93f9' };
+const C = { bg: '#2e3440', text: '#d8dee9', dim: '#9aa3b5', inner: '#b48ead', title: '#88c0d0' };
 const font = pathToFileURL(join(root, 'tools', 'app', 'fonts', 'JetBrainsMono.ttf')).href;
 const FONT = '"JetBrains Mono", ui-monospace, Menlo, monospace';
 

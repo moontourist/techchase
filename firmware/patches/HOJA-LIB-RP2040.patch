@@ -182,6 +182,23 @@ index 23b47ce..65ac6e3 100644
      task_fn_t fn;
  } task_s;
  
+diff --git a/src/hal/nrf52/usb_hal.c b/src/hal/nrf52/usb_hal.c
+index 1263dde..76129b9 100644
+--- a/src/hal/nrf52/usb_hal.c
++++ b/src/hal/nrf52/usb_hal.c
+@@ -318,11 +318,7 @@ bool transport_usb_init(core_params_s *params)
+         tcfg.slippi_console = core_ns2gc_console_rate();
+         _usb_frames = tcfg.slippi_console ? 8 : 1;
+         tcfg.driver = HHL_TUSB_DRIVER_SLIPPI;
+-        // The config app's interface beside the adapter when the app switched us here: the host is a
+-        // computer then. Otherwise the plain adapter, as a console knows it.
+-        tcfg.webusb.enabled = hoja_usb_mode_by_app();
+-        tcfg.webusb.url = USB_WEBUSB_URL;
+-        tcfg.webusb.popup_enable_flag = &gamepad_config->webusb_enable_popup;
++        tcfg.webusb.enabled = false;
+         break;
+ #else
+         return false;
 diff --git a/src/hal/rp2040/joybus_gc_hal.c b/src/hal/rp2040/joybus_gc_hal.c
 index 62363fa..dbaccb6 100644
 --- a/src/hal/rp2040/joybus_gc_hal.c
@@ -264,7 +281,7 @@ index 62363fa..dbaccb6 100644
  
      // Handle rumble state if it changes
 diff --git a/src/hal/rp2040/usb_hal.c b/src/hal/rp2040/usb_hal.c
-index e0d98c9..a3c455f 100644
+index e0d98c9..cc363c3 100644
 --- a/src/hal/rp2040/usb_hal.c
 +++ b/src/hal/rp2040/usb_hal.c
 @@ -23,6 +23,10 @@
@@ -343,7 +360,20 @@ index e0d98c9..a3c455f 100644
      _usb_hal_mounted = false;
      hhl_tusb_stop();
  }
-@@ -248,6 +276,11 @@ bool transport_usb_init(core_params_s *params)
+@@ -221,11 +249,7 @@ bool transport_usb_init(core_params_s *params)
+         tcfg.slippi_console = core_ns2gc_console_rate();
+         _usb_frames = tcfg.slippi_console ? 8 : 1;
+         tcfg.driver = HHL_TUSB_DRIVER_SLIPPI;
+-        // The config app's interface beside the adapter when the app switched us here: the host is a
+-        // computer then. Otherwise the plain adapter, as a console knows it.
+-        tcfg.webusb.enabled = hoja_usb_mode_by_app();
+-        tcfg.webusb.url = USB_WEBUSB_URL;
+-        tcfg.webusb.popup_enable_flag = &gamepad_config->webusb_enable_popup;
++        tcfg.webusb.enabled = false;
+         break;
+ #else
+         return false;
+@@ -248,6 +272,11 @@ bool transport_usb_init(core_params_s *params)
  
      hhl_tusb_init(&tcfg);
  
@@ -355,7 +385,7 @@ index e0d98c9..a3c455f 100644
      return hhl_tusb_start();
  }
  
-@@ -272,6 +305,17 @@ void transport_usb_task(uint64_t timestamp)
+@@ -272,6 +301,17 @@ void transport_usb_task(uint64_t timestamp)
          _usb_ready = hhl_tusb_report_ready();
      }
  
@@ -373,7 +403,7 @@ index e0d98c9..a3c455f 100644
      if (_usb_sendit && _usb_ready)
      {
          if (!tasks_get_required_done())
-@@ -279,6 +323,12 @@ void transport_usb_task(uint64_t timestamp)
+@@ -279,6 +319,12 @@ void transport_usb_task(uint64_t timestamp)
              return;
          }
  
@@ -386,7 +416,7 @@ index e0d98c9..a3c455f 100644
          _usb_sendit = false;
          _usb_ready = false;
  
-@@ -286,6 +336,7 @@ void transport_usb_task(uint64_t timestamp)
+@@ -286,6 +332,7 @@ void transport_usb_task(uint64_t timestamp)
          {
              if (hhl_tusb_report_send(_core_report.data[0], &_core_report.data[1], _core_report.size - 1))
              {
@@ -950,10 +980,10 @@ index 0a03cca..8c3459f 100644
          // The game sees the pad at rest, but a hand on it still keeps the idle timer off: the mapper's
          // heartbeat below only sees this pass, and not every app view runs the app's own pass
 diff --git a/src/usb/webusb.c b/src/usb/webusb.c
-index 9288855..efc1db6 100644
+index 9288855..2187cf7 100644
 --- a/src/usb/webusb.c
 +++ b/src/usb/webusb.c
-@@ -18,6 +18,10 @@
+@@ -18,8 +18,14 @@
  #include "hoja.h"
  
  #include "input/mapper.h"
@@ -963,8 +993,91 @@ index 9288855..efc1db6 100644
 +#include "cores/cores.h"
  
  #include "hhl_tusb.h"
++#include "hhl_tusb_webusb.h"
++#include "tusb.h"
  
-@@ -144,6 +148,46 @@ void webusb_send_bulk(const uint8_t *data, uint16_t size)
+ #include <stdatomic.h>
+ 
+@@ -28,10 +34,67 @@
+ 
+ // The app's live input isn't a report to the game: the game's own reports keep the task cycle and the
+ // report rate
++#define WEBUSB_REPLY_QUEUE_LEN 48
++static uint8_t _webusb_replies[WEBUSB_REPLY_QUEUE_LEN][HHL_TUSB_WEBUSB_REPORT_SIZE];
++static uint8_t _webusb_reply_size[WEBUSB_REPLY_QUEUE_LEN];
++static uint8_t _webusb_reply_head = 0;
++static uint8_t _webusb_reply_tail = 0;
++
++static bool _webusb_usb_writable(void)
++{
++    return hhl_tusb_webusb_active() && tud_ready() && tud_vendor_n_mounted(HHL_TUSB_WEBUSB_VENDOR_INSTANCE) &&
++           (tud_vendor_n_write_available(HHL_TUSB_WEBUSB_VENDOR_INSTANCE) >= HHL_TUSB_WEBUSB_REPORT_SIZE);
++}
++
++static void _webusb_usb_flush_replies(void)
++{
++    while ((_webusb_reply_tail != _webusb_reply_head) && _webusb_usb_writable())
++    {
++        const uint8_t i = _webusb_reply_tail;
++        (void)hhl_tusb_webusb_report_send(_webusb_replies[i], _webusb_reply_size[i]);
++        _webusb_reply_tail = (uint8_t)((i + 1u) % WEBUSB_REPLY_QUEUE_LEN);
++    }
++}
++
++static bool _webusb_usb_send(const uint8_t *data, uint16_t size)
++{
++    if (!hhl_tusb_webusb_active() || (data == NULL) || (size > HHL_TUSB_WEBUSB_REPORT_SIZE))
++        return false;
++
++    _webusb_usb_flush_replies();
++    if ((_webusb_reply_tail == _webusb_reply_head) && _webusb_usb_writable())
++        return hhl_tusb_webusb_report_send(data, size);
++
++    const uint8_t next = (uint8_t)((_webusb_reply_head + 1u) % WEBUSB_REPLY_QUEUE_LEN);
++    if (next == _webusb_reply_tail)
++        return false;
++    memcpy(_webusb_replies[_webusb_reply_head], data, size);
++    _webusb_reply_size[_webusb_reply_head] = (uint8_t)size;
++    _webusb_reply_head = next;
++    return true;
++}
++
++static bool _webusb_usb_send_input(const uint8_t *data, uint16_t size)
++{
++    if (!hhl_tusb_webusb_active())
++        return false;
++
++    _webusb_usb_flush_replies();
++    if ((_webusb_reply_tail != _webusb_reply_head) || !_webusb_usb_writable())
++        return true;
++    return hhl_tusb_webusb_report_send(data, size);
++}
++
++static bool _webusb_usb_ready(int timeout_ms)
++{
++    (void)timeout_ms;
++    return hhl_tusb_webusb_active();
++}
++
+ static const webusb_sink_s _webusb_usb_sink = {
+-    .send       = hhl_tusb_webusb_report_send,
+-    .send_input = hhl_tusb_webusb_report_send,
+-    .ready      = hhl_tusb_webusb_report_ready_blocking,
++    .send       = _webusb_usb_send,
++    .send_input = _webusb_usb_send_input,
++    .ready      = _webusb_usb_ready,
+ };
+ 
+ static const webusb_sink_s *_webusb_sink = &_webusb_usb_sink;
+@@ -78,6 +141,7 @@ static void _webusb_mark_unready(void)
+         return;
+ 
+     _ready_to_go = false;
++    _webusb_reply_tail = _webusb_reply_head;
+     mapper_webusb_remap_preview_end();
+ }
+ 
+@@ -144,6 +208,46 @@ void webusb_send_bulk(const uint8_t *data, uint16_t size)
      }
  }
  
@@ -1011,7 +1124,16 @@ index 9288855..efc1db6 100644
  #define CLAMP_0_255(value) ((value) < 0 ? 0 : ((value) > 255 ? 255 : (value)))
  void webusb_send_rawinput(uint64_t timestamp)
  {
-@@ -246,6 +290,10 @@ void webusb_send_rawinput(uint64_t timestamp)
+@@ -156,6 +260,8 @@ void webusb_send_rawinput(uint64_t timestamp)
+     if(!_ready_to_go) return;
+ 
+     _webusb_send_deferred();
++    if (_webusb_sink == &_webusb_usb_sink)
++        _webusb_usb_flush_replies();
+ 
+     if(!ready)
+     {
+@@ -246,6 +352,10 @@ void webusb_send_rawinput(uint64_t timestamp)
                  webusb_input_report[29] = (ry & 0xFF00) >> 8;
                  webusb_input_report[30] = (ry & 0xFF);
              break;
@@ -1022,7 +1144,7 @@ index 9288855..efc1db6 100644
          }
  
          if (!_webusb_sink->send_input(webusb_input_report, 64))
-@@ -297,6 +345,137 @@ static void _webusb_send_fingerprints(void)
+@@ -297,12 +407,144 @@ static void _webusb_send_fingerprints(void)
      }
  }
  
@@ -1160,7 +1282,14 @@ index 9288855..efc1db6 100644
  void webusb_command_handler(uint8_t *data, uint32_t size)
  {
      // The app's motion view wants standard IMU data. Through the dongle or BLE a game may be using
-@@ -358,6 +537,10 @@ void webusb_command_handler(uint8_t *data, uint32_t size)
+     // the IMU in another mode (a Switch's quaternions), so leave it be.
+     if (!_ready_to_go && (_webusb_sink == &_webusb_usb_sink))
+     {
++        _webusb_reply_tail = _webusb_reply_head;
+         imu_set_read_mode(IMU_MODE_STANDARD);
+     }
+ 
+@@ -358,6 +600,10 @@ void webusb_command_handler(uint8_t *data, uint32_t size)
              // Do nothing
          break;
  

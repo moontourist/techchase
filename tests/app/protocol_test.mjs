@@ -1,6 +1,6 @@
 import { WebUSB } from 'usb';
 import {
-  GcuDevice, GC_CODES, codeName, remappable, jobs, layoutOf, applyLayout, FORMATS, LATCH_MODES,
+  GcuDevice, ID_READ_CONFIG_BLOCK, GC_CODES, codeName, remappable, jobs, layoutOf, applyLayout, FORMATS, LATCH_MODES,
 } from '../../tools/app/gcu-protocol.js';
 
 const webusb = new WebUSB({ allowAllDevices: true });
@@ -85,6 +85,19 @@ try {
   await applyLayout(dev, swap);
   const after = layoutOf(await dev.map());
   check(JSON.stringify(after.sort()) === JSON.stringify(swap.slice().sort()), `profile apply round-trips (${JSON.stringify(after)})`);
+
+  const { ANALOG_CMD, CFG_BLOCK_ANALOG, parseAnalog } = await import('../../tools/app/calibration.js');
+  const analog = await dev.readBlock(ID_READ_CONFIG_BLOCK, CFG_BLOCK_ANALOG);
+  const a = parseAnalog(analog);
+  check(analog.length === 1024 && a.l.filter((x) => x.enabled).length >= 8, `analog block reads (${a.l.filter((x) => x.enabled).length} notches on the main stick, calibrated ${a.calibrationSet})`);
+  const capL = await dev.captureStick(ANALOG_CMD.CAPTURE_LEFT);
+  const capR = await dev.captureStick(ANALOG_CMD.CAPTURE_RIGHT);
+  check([capL.angle, capL.distance, capR.angle, capR.distance].every(Number.isFinite) && capL.angle >= 0 && capL.angle < 360,
+    `stick capture replies (main ${capL.angle.toFixed(1)}° ${capL.distance.toFixed(0)}, c ${capR.angle.toFixed(1)}° ${capR.distance.toFixed(0)})`);
+  await dev.writeBlock(CFG_BLOCK_ANALOG, analog);
+  const again = await dev.readBlock(ID_READ_CONFIG_BLOCK, CFG_BLOCK_ANALOG);
+  check(again.every((b, i) => b === analog[i]), 'writing the analog block back leaves it byte for byte the same');
+  check((await dev.info()).unsaved === false, 'a block write alone does not mark remaps unsaved');
 } catch (e) {
   console.error('ERROR', e);
   failures++;

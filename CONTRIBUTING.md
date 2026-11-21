@@ -58,15 +58,20 @@ the plan and measurements go in PLAN.md.
 
 ## Theme
 
-The app's colors are CSS variables in `tools/app/style.css`, all from the Dracula palette. Text
-must stay readable against `--bg-primary`:
+The app's colors are CSS variables in `tools/app/style.css`, from the Nord palette as Ghostty
+ships it (`ghostty/Nord` in iTerm2-Color-Schemes). Text must stay readable against `--bg-primary`
+(`#2e3440`):
 
 | Variable | Contrast | Floor |
 |---|---|---|
-| `--text-primary` | 13.4x | 7.0x (WCAG AAA) |
-| `--text-subtle` | 7.0x | 6.0x |
-| `--text-muted` | 5.2x | 4.5x (WCAG AA) |
-| `--border-primary` | 2.3x | 2.1x |
+| `--text-primary` | 9.3x | 7.0x (WCAG AAA) |
+| `--text-subtle` | 6.9x | 6.0x |
+| `--text-muted` | 4.9x | 4.5x (WCAG AA) |
+| `--border-primary` | 2.7x | 2.1x |
+
+Nord's own grays (`#4c566a`, `#596377`) are under the floors, so they're used for lines and fills
+only; muted text and the primary border are Nord-toned grays lightened to pass. The controller
+drawing's colors are `--pad-*` variables.
 
 New colors go in as variables, never as hex values in a rule.
 

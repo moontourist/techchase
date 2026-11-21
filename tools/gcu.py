@@ -70,8 +70,7 @@ class Pad:
                 break
         if not self.dev:
             sys.exit("No HOJA controller with its config interface found. Plug it in over USB "
-                     "(Slippi mode only has the config interface when switched there by this "
-                     "tool or the web app).")
+                     "(in Slippi mode it's a plain GameCube adapter: unplug it to get back here).")
         self.product = usb.util.get_string(self.dev, self.dev.iProduct)
         usb.util.claim_interface(self.dev, self.itf)
 
@@ -273,7 +272,12 @@ def cmd_reset(pad, a):
 
 def cmd_mode(pad, a):
     r = pad.command(T_USB_MODE, MODE_ARGS[a.mode])
-    print(f"switching to {a.mode} (until unplugged)" if r[2] else "the controller refused (not on USB?)")
+    if not r[2]:
+        print("the controller refused (not on USB?)")
+    elif a.mode == 'slippi':
+        print("switching to slippi: a plain GameCube adapter until unplugged, so this tool can't reach it until then")
+    else:
+        print(f"switching to {a.mode} (until unplugged)")
 
 def main():
     p = argparse.ArgumentParser(description='Desktop companion for the GC Ultimate techchase firmware (HOJA fork).')

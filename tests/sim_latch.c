@@ -25,6 +25,7 @@ typedef struct
     uint32_t read_us, read_jitter;
     uint32_t pass_max;
     uint32_t long_task_us;
+    bool creeping_stalls;
 } scenario_s;
 
 static bool latch_allows(uint32_t runtime, uint32_t now)
@@ -41,7 +42,7 @@ static bool latch_allows(uint32_t runtime, uint32_t now)
     return false;
 }
 
-static void run(const scenario_s *sc)
+static bool run(const scenario_s *sc)
 {
     memset(&sim_dpram, 0, sizeof(sim_dpram));
     sim_now = 12345;
@@ -57,6 +58,8 @@ static void run(const scenario_s *sc)
     uint32_t next_poll = sim_now + 777;
     uint32_t xfer_done_at = 0; bool xfer_pending = false;
     uint32_t warm_end = sim_now + 300000;
+    const uint32_t stalls_at = sim_now + 1000000;
+    bool stalls_done = false;
 
     const uint32_t end = sim_now + 3300000;
     for (; sim_now < end; sim_now++)
@@ -125,6 +128,17 @@ static void run(const scenario_s *sc)
                 {
                     due_pending = false; sendit = false;
                     fw = FW_BUILDING; fw_until = sim_now + 30;
+                    if (sc->creeping_stalls && !stalls_done && (int32_t)(sim_now - stalls_at) >= 0)
+                    {
+                        latch_stats_s now_st;
+                        latch_stats_get(&now_st);
+                        const uint32_t ready_max = now_st.lead_us - now_st.guard_us;
+                        const uint32_t ready_now = sim_now - due_us + 30;
+                        uint32_t want = 2 * ready_max + 40;
+                        if (want > 880) want = 880;
+                        if (now_st.lead_us >= 950) stalls_done = true;
+                        else if (want > ready_now) fw_until += want - ready_now;
+                    }
                     continue;
                 }
             }
@@ -154,27 +168,35 @@ static void run(const scenario_s *sc)
            sc->name, modes[st.mode & 0x7F], st.count, st.age_avg_us, st.age_min_us, st.age_max_us, st.misses,
            st.lead_us, st.guard_us, sc->usb ? "phase" : "period", st.phase_us);
     if (sc->usb) latch_usb_stop(); else latch_jb_stop();
+    if (sc->creeping_stalls && (st.mode & 0x7F) != LATCH_MODE_USB_LATE)
+    {
+        printf("FAIL  late-latch stayed off after slow reports pushed its lead past a frame\n");
+        return false;
+    }
+    return true;
 }
 
 int main(void)
 {
     const scenario_s s[] = {
-        {"USB poll@120us  STOCK",          true,  false, 120, 0, 0, 80, 20, 40, 150},
-        {"USB poll@120us  late-latch",     true,  true,  120, 0, 0, 80, 20, 40, 150},
-        {"USB poll@500us  STOCK",          true,  false, 500, 0, 0, 80, 20, 40, 150},
-        {"USB poll@500us  late-latch",     true,  true,  500, 0, 0, 80, 20, 40, 150},
-        {"USB poll@900us  STOCK",          true,  false, 900, 0, 0, 80, 20, 40, 150},
-        {"USB poll@900us  late-latch",     true,  true,  900, 0, 0, 80, 20, 40, 150},
-        {"USB poll@120us  late, 800us task",true, true,  120, 0, 0, 80, 20, 40, 800},
-        {"USB poll@300us  late, slow loop", true, true,  300, 0, 0, 120, 60, 120, 300},
-        {"GC console 16.7ms STOCK",        false, false, 0, 16683, 4, 80, 20, 40, 150},
-        {"GC console 16.7ms poll-lock",    false, true,  0, 16683, 4, 80, 20, 40, 150},
-        {"GC adapter 1ms   STOCK",         false, false, 0, 1000, 2, 80, 20, 40, 150},
-        {"GC adapter 1ms   poll-lock",     false, true,  0, 1000, 2, 80, 20, 40, 150},
-        {"GC adapter 600us poll-lock",     false, true,  0, 600, 2, 80, 20, 40, 150},
-        {"GC irregular polls (jitter 40%)",false, true,  0, 2000, 800, 80, 20, 40, 150},
+        {"USB poll@120us  STOCK",          true,  false, 120, 0, 0, 80, 20, 40, 150, false},
+        {"USB poll@120us  late-latch",     true,  true,  120, 0, 0, 80, 20, 40, 150, false},
+        {"USB poll@500us  STOCK",          true,  false, 500, 0, 0, 80, 20, 40, 150, false},
+        {"USB poll@500us  late-latch",     true,  true,  500, 0, 0, 80, 20, 40, 150, false},
+        {"USB poll@900us  STOCK",          true,  false, 900, 0, 0, 80, 20, 40, 150, false},
+        {"USB poll@900us  late-latch",     true,  true,  900, 0, 0, 80, 20, 40, 150, false},
+        {"USB poll@120us  late, 800us task",true, true,  120, 0, 0, 80, 20, 40, 800, false},
+        {"USB poll@300us  late, slow loop", true, true,  300, 0, 0, 120, 60, 120, 300, false},
+        {"USB poll@120us  late, slow reports",true, true, 120, 0, 0, 80, 20, 40, 150, true},
+        {"GC console 16.7ms STOCK",        false, false, 0, 16683, 4, 80, 20, 40, 150, false},
+        {"GC console 16.7ms poll-lock",    false, true,  0, 16683, 4, 80, 20, 40, 150, false},
+        {"GC adapter 1ms   STOCK",         false, false, 0, 1000, 2, 80, 20, 40, 150, false},
+        {"GC adapter 1ms   poll-lock",     false, true,  0, 1000, 2, 80, 20, 40, 150, false},
+        {"GC adapter 600us poll-lock",     false, true,  0, 600, 2, 80, 20, 40, 150, false},
+        {"GC irregular polls (jitter 40%)",false, true,  0, 2000, 800, 80, 20, 40, 150, false},
     };
+    int failures = 0;
     for (unsigned i = 0; i < sizeof(s) / sizeof(s[0]); i++)
-        run(&s[i]);
-    return 0;
+        failures += run(&s[i]) ? 0 : 1;
+    return failures ? 1 : 0;
 }

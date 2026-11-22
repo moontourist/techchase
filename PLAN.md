@@ -685,13 +685,37 @@ correct and connected at a tournament, and 14d and 14e are the calibration half 
       (`interval_run(timestamp, 8000, ...)` in `webusb.c`), so `tc live` expects about 125 a
       second. The GC Ultimate's 1 kHz path is Slippi mode, where it is a plain adapter
       (057e:0337) and `tc adapter` reads it like the Lossless.
-* [ ] **14h Core crate.**
+* [x] **14h Core crate.**
   * Protocol, live report parsing, the Melee math (`tools/app/melee.js` and its tests move over),
     layouts and profiles.
   * Pure, no USB. Newtypes for input codes and units, enums for commands and modes.
   * The `scadoshi-rust` lint set and wave's `rustfmt.toml` and `clippy.toml`, warnings as errors.
+  * **Done, 2026-11-21:** `techchase-core` has `adapter`, `gcu` (commands, replies, `LatchMode` and
+    `ReportFormat` enums), `codes` (`InputCode`, `GcCode`, `SwCode`), `live` (the three live report
+    kinds), `melee` (`FwAxis`, `GcAxis`, `MeleeAxis`, notches; the rim scaling is exact integer
+    math, checked against the float formula over the whole stick range), `analog` and `calibration`
+    (the wizard's math, `StillDetector`), `layout` and `profile` (the app's profile files). 39 tests;
+    the JS tests' cases all carried over. Lints and format are thunk's and seethe's (wave isn't
+    on this machine; theirs are the same set), with `missing_docs` off for the no-comments rule.
+    `tc check` passes on the controller after the move to the code newtypes.
+  * `tests/sim_latch.c` gained a scenario for the late-latch bug: reports slowed step by step to
+    the stall filter's limit. Without the retry it ends stuck off (lead 1012 us, guard 200, as the
+    controller showed) and exits 1; with it, late-latch is back on.
 * [ ] **14i USB crate.** GC Ultimate config interface, GameCube adapter (for the Phob), RAW_IO,
   hot-plug.
+  * **Built, 2026-11-21:** `techchase-usb` has `Gcu` (every operation the app uses: info, stats,
+    map, assign, save, revert, layouts, the analog block, stick capture), `Adapter` (reads in
+    flight, a timestamp on each report), typed errors that name the usual cause (Dolphin or the
+    app's tab holding the device), and `hotplug::watch` (present, arrived and left events, with a
+    retry for Windows opening a composite device before its interfaces are ready). `tc` runs on it;
+    `tc watch` is new. On the controller: `tc check` all passed, `tc info`, `tc stats`, `tc live`
+    (125/s, none dropped) and `tc watch` (found and opened it).
+  * Each 64-byte live report is followed by an empty packet, which `tc live` counted as an
+    "other" packet; the crate now drops empty packets.
+  * Checked by hand: `tc live` now shows 0 other packets. During `tc watch`, the GC Ultimate and
+    the Lossless were each unplugged and replugged; every removal was seen, and every arrival
+    opened (the controller answered INFO, the adapter's reports flowed).
+  * Left: a full `tc adapter` run on the new crate to confirm the 1000/s rate.
 * [ ] **14j Desktop app.** Tauri 2. The current screens (HTML, CSS, JavaScript) move over as they
   are and call the Rust core instead of WebUSB.
   * Installers for Windows and Mac.

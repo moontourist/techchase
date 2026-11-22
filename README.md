@@ -84,7 +84,10 @@ and JavaScript over WebUSB, with no build step. The tools are Python.
 | `tools/dolphin_setup.py` | The Dolphin check, for the app and on its own: which port reads the controller, and fixing a mapping |
 | `tools/button_check.py` | Press each button: what Windows receives, and what a Dolphin profile reads it as |
 | `tools/slippi_poll_ab.py` | Polls like Slippi Dolphin at 1 kHz and A/B tests the late-latch |
-| `tests/sim_latch.c` | Runs the real late-latch code on a PC against simulated polls |
+| `rust/techchase-core` | The protocol, live reports, Melee math, stick calibration, layouts and profiles, in Rust with no USB: the core of the coming desktop app |
+| `rust/techchase-usb` | The USB side: the GC Ultimate's config interface, GameCube adapters with RAW_IO, and hot-plug |
+| `rust/techchase-cli` | `tc`: reads a GameCube adapter (a Phob on a Lossless) at 1 kHz, the GC Ultimate's info, stats, map, live stream and protocol check, and watches devices come and go |
+| `tests/sim_latch.c` | Runs the real late-latch code on a PC against simulated polls, including slow reports that must not leave it stuck off |
 | `tests/slippi_dolphin_poll.py` | Polls Slippi mode exactly as Slippi Dolphin does, and fails on anything Dolphin would see as a drop |
 | `tests/dolphin_setup_test.py` | The Dolphin check and fix, on a throwaway copy of Dolphin's settings |
 | `tests/app/` | Protocol test on a real controller, Melee math test, and a UI test in headless Chrome |
@@ -114,6 +117,14 @@ node tests/app/live_check.mjs                      # live report from the contro
 .venv/bin/python tests/slippi_dolphin_poll.py      # controller in Slippi mode, Dolphin closed
 
 python -m venv .venv && .venv/bin/pip install -r tools/requirements.txt
+
+cd rust
+cargo test                                         # the core: Melee math, calibration, protocol, profiles
+cargo clippy --workspace --all-targets -- -D warnings
+cargo +nightly fmt                                 # rustfmt.toml uses nightly options
+cargo run --release --bin tc -- adapter           # a Phob on a Lossless adapter, port 1; Dolphin closed
+cargo run --release --bin tc -- check             # GC Ultimate protocol check; restores your layout
+cargo run --release --bin tc -- watch             # lists controllers and adapters as they're plugged in and out
 ```
 
 The Pico SDK and Arm toolchain come with the Raspberry Pi Pico extension for VS Code. Code rules are

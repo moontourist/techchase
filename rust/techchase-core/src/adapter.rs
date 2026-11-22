@@ -1,6 +1,6 @@
 use std::fmt;
 
-pub const VENDOR_ID: u16 = 0x057E;
+pub const VENDOR_ID: u16 = 0x057e;
 pub const PRODUCT_ID: u16 = 0x0337;
 pub const REPORT_ID: u8 = 0x21;
 pub const REPORT_LEN: usize = 37;
@@ -28,9 +28,7 @@ impl PortKind {
     }
 
     #[must_use]
-    pub const fn connected(self) -> bool {
-        !matches!(self, Self::Empty)
-    }
+    pub const fn connected(self) -> bool { !matches!(self, Self::Empty) }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,9 +109,7 @@ impl Buttons {
     }
 
     #[must_use]
-    pub const fn pressed(self, button: Button) -> bool {
-        self.0 & button.mask() != 0
-    }
+    pub const fn pressed(self, button: Button) -> bool { self.0 & button.mask() != 0 }
 
     pub fn iter(self) -> impl Iterator<Item = Button> {
         Button::ALL.into_iter().filter(move |b| self.pressed(*b))
@@ -150,10 +146,9 @@ pub enum ReportError {
 impl fmt::Display for ReportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Length(n) => write!(
-                f,
-                "an adapter report is {REPORT_LEN} bytes, this one is {n}"
-            ),
+            Self::Length(n) => {
+                write!(f, "an adapter report is {REPORT_LEN} bytes, this one is {n}")
+            }
             Self::Id(id) => write!(
                 f,
                 "an adapter report starts with {REPORT_ID:#04x}, this one with {id:#04x}"
@@ -246,7 +241,7 @@ mod tests {
 
     #[test]
     fn button_order_is_stable() {
-        let b = Buttons::from_bytes(0xFF, 0x0F);
+        let b = Buttons::from_bytes(0xff, 0x0f);
         assert_eq!(b.iter().count(), 12);
         assert_eq!(b.iter().next(), Some(Button::A));
     }

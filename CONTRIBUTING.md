@@ -2,8 +2,10 @@
 
 techchase follows the `scadoshi-rust` rules, the audit rules thunk, seethe and wave use (from
 scadoshi's zwipe). They were written for Rust; this file says what each one means in the C,
-JavaScript and Python here. When the desktop app moves to Rust (PLAN.md, 12g), its crates take
-`rustfmt.toml`, `clippy.toml` and the lint set from wave word for word.
+JavaScript and Python here. The Rust crates in `rust/` take `rustfmt.toml`, `clippy.toml` and the
+lint set from thunk and seethe word for word, with one change: `missing_docs` is off, because the
+code carries no comments (below). `cargo clippy --workspace --all-targets -- -D warnings` must pass,
+and `cargo +nightly fmt` formats.
 
 Every rule applies to code this project writes or changes. HHL's upstream code is left in its own
 style, so the patches stay small and rebase cleanly.

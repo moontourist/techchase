@@ -1,0 +1,15 @@
+[package]
+name = "techchase-usb"
+version = "0.1.0"
+description = "techchase over USB: the GC Ultimate's config interface, GameCube adapters (for a Phob) at 1 kHz with RAW_IO, and hot-plug"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+futures-lite = "2.6.1"
+nusb = "0.2.9"
+techchase-core = { path = "../techchase-core" }
+
+[lints]
+workspace = true

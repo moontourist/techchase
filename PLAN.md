@@ -436,7 +436,7 @@ Steps:
 * [ ] **13d Two-way settings (stretch).** For Phobs whose USB works: a small serial command set
   (read and write settings) proposed upstream to PhobGCC-SW as a pull request, so players don't
   need a fork.
-* [ ] **13e Phob input lag.** The mission covers the Phob's lag too, not only its setup.
+* [ ] **13e Phob input lag.** The mission covers the Phob's lag too, not only its setup. Planned in Phase 22.
   * Measure when a Phob reads its sticks and buttons relative to the console's poll (PhobGCC
     source, then a logic analyzer or the Pico rig from Phase 9 on the joybus line).
   * If reads land early, a late-latch for PhobGCC (the joybus version of `latch.c`, which a
@@ -854,12 +854,12 @@ as up-right (76, 73) = (0.7125, 0.6875)).
     nine GTS readings from the owner's Phob (all pass).
   * The demo controller replays those notches with snapback wobble.
   * UI smoke test: 28 of 28.
-* [ ] **15c Against GTS.** Compare the live view with GTS on the same controller and notch. Raw XY
+* [ ] **15c Against GTS.** Moved to 19g. Compare the live view with GTS on the same controller and notch. Raw XY
   must match in Slippi mode.
 * [ ] **15d Guided GC Ultimate calibration in the live view.** Moved up to 14d.
 * [ ] **15e The Phob in the same view.** Once Phase 13 reads a Phob through the adapter, it feeds
   this view, and 14e's guided calibration runs here.
-* [ ] **15f More GTS tools.** Trigger oscilloscope, button timing (press to release, for
+* [ ] **15f More GTS tools.** Moved to Phase 19. Trigger oscilloscope, button timing (press to release, for
   double-press checks), a 2D plot that records a whole stick sweep, and export of a calibration
   report.
 * [ ] **15g Polish.** A first-run walkthrough, a phone layout for venue setup, keyboard use, and
@@ -941,6 +941,155 @@ and idle. Breathe is reserved and not wired up yet.
   lock.
 * [ ] **16e Phob.** A Phob has no RGB, so this phase is GC Ultimate only. The mission's "both
   controllers" rule is met by saying so.
+
+## Phases 17 to 22: from the community (asked for 2026-11-21)
+The owner asked what to build next, looking to the Melee and Smash community. Research the same day
+pointed at five things players use or ask for, all of which this app can do through the adapter,
+with no Dolphin:
+* The controller ruleset that 2025 events cite (CarVac's `MeleeConchRuleset`, `ruleset.md`, linked
+  from start.gg rules pages as the technical version of "the 2025 Controller Ruleset").
+* GTS (`greenwave-1/GTS`), the open-source GameCube controller tester that replaced SmashScope.
+  It runs on a Wii or in Dolphin.
+* Phob setup questions that come up most: triggers (lightshield, trigger plugs) and the settings
+  beyond calibration.
+* Notches that drift as springs, sensors and modded gates wear.
+* Notch modding toward named targets (wavedash, firefox angles).
+
+Order, Phob first: 17, 18, 19, 20, 21, 22. Each phase starts with research, and nothing ships on a
+rule or a value that hasn't been checked against its source. Every phase covers the GC Ultimate
+too where it fits, or says why not.
+
+## Phase 17: Tournament legality check
+A one-click self-check against the ruleset tournaments cite: stick reach, notch angles, filters and
+triggers, each marked pass or fail, in a report a player can show a TO. It's a self-check, not a
+ruling: the report names the ruleset version it checked and lists what it can't measure.
+
+What the ruleset says that applies (read 2026-11-21 from `ruleset.md`; recheck the source in 17a):
+* **Stick reach.** A calibrated stick reaches at least 90 and at most 110 units from the origin.
+* **Remapping.** Only the angle may change, not the distance. The remap is static, piecewise
+  linear and continuous, with at most 16 segments. Small inputs (|X| and |Y| up to 5) may map to
+  the origin.
+* **Notch angles.** A diagonal's angle to each neighboring cardinal may be stretched by at most 30%
+  or compressed by at most 23.1%. A modder notch: at most 100% stretched, 50% compressed.
+* **Filters.** Snapback filtering, smoothing and waveshaping are allowed if the filter ignores every
+  other input, never runs ahead of the input, is a weighted sum of current and past values, and
+  has no timers, no cross-axis effects (except radius as a weight) and nothing asymmetric. The
+  PhobGCC smart snapback filter and PhobGCC waveshaping are named as allowed.
+* **Triggers.** Melee caps the analog value at 140; 43 and up is an analog shield; Z's lightshield
+  is 49. A digital press mapped to an analog value must not give 43 to 48.
+* **Buttons.** No delayed digital outputs (no macros), except anti-misinput delays on Start and the
+  D-pad.
+* **Declared, not measured.** Source availability for non-Nintendo controllers, and declaring the
+  firmware.
+
+* [ ] **17a Research.**
+  * Read `ruleset.md` at a pinned commit and record the hash. Sort every rule into measurable
+    through the adapter, declared by the player, or not checkable.
+  * The exact definition of "stretched" and "compressed" for notch angles: measured from what, and
+    relative to what. Build the math from the text, with its examples as tests.
+  * Which rules the Phob meets by design (its named filters) and which depend on the player's
+    settings (calibration, trigger modes, analog scaler).
+  * The GC Ultimate: whether HOJA's low-pass and Auto (spring model) filters meet the filter rules,
+    and how techchase's own changes read against them (late-latch changes when the input is read,
+    not what it is; Quick Remap is a static button remap).
+* [ ] **17b Measurements.** From what the app already collects, plus a few prompts:
+  * The origin (let go), the reach in each direction, and each notch's angle (the notch check).
+  * Each trigger: rest value, a slow press for the analog curve, and the analog value at the
+    digital click.
+  * The settings the app has read (snapback, smoothing, waveshaping, trigger mode, scaler).
+* [ ] **17c Report.** A **Tournament check** button in the Live tab walks the player through 17b in
+  under two minutes, then shows a pass, fail or can't-check line per rule, each naming the rule.
+  Copy as text and save as an image, to share.
+* [ ] **17d GC Ultimate.** The same check over USB, plus the firmware features from 17a.
+* [ ] **17e Tests.** Notch sets just inside and just outside each limit, the ruleset's own examples,
+  trigger values at 42, 43, 48 and 49, and a UI test with the fake adapter.
+
+## Phase 18: Every Phob setting (finishes 13c)
+Calibration and snapback are done. This phase guides the rest the same way: read the value from
+what the Phob shows, say what to press, and read the change back.
+
+* [ ] **18a Research.** From PhobGCC-SW 0.29's source, not community sheets: each remaining combo,
+  its display, its range and default.
+  * Triggers: the trigger modes for each trigger, the set analog value some modes use (Battle
+    Beaver's page says 49 by default), the trigger offset, and the analog L and R toggles
+    (A + B + L or R).
+  * Smoothing (R + X or Y, then D-pad), waveshaping (L + X or Y, then D-pad), the analog scaler
+    (L + A, then D-pad), cardinal snapping (R + A, then D-pad), the c-stick versions (with Z), and
+    the c-stick settings display (R + Start).
+  * Rumble (A + B, then D-pad), the button swaps (X or Y with L or R, plus Start), auto-initialize
+    (A + X + Y + Z), and the soft and hard resets.
+  * Whether any setting can push the controller outside the ruleset (Phase 17), so the guide can
+    warn first.
+* [ ] **18b Triggers.** The live trigger with lines at 43 (analog shield), 49 (lightshield) and 140
+  (Melee's cap). Read the trigger mode, then guide the player to the mode for their setup (trigger
+  plugs, lightshield on a press, digital only), and warn if a press would land on 43 to 48.
+* [ ] **18c Smoothing and waveshaping.** Read, show and change them, and say what each does in one
+  line from the source. Advice only where the app can measure the effect.
+* [ ] **18d Scaler, cardinal snapping, rumble and the c-stick.** Read, show and change. The scaler
+  ties into 17's reach rule.
+* [ ] **18e Settings snapshot.** Every value the app has read, saved per controller (the player
+  names it). After a Phob reset or firmware update, **Restore** walks through the combos from the
+  current values back to the saved ones. Export and import as a file, to share a setup.
+* [ ] **18f Tests.** A reader test for each display, and fake-adapter UI flows for each guide.
+* GC Ultimate: its trigger and stick settings live in its settings blocks. Show the same trigger
+  lines, and the snapshot reuses profiles.
+
+## Phase 19: GTS tools in the app (takes over 15c and 15f)
+GTS's tools, built in, reading at the adapter's 1000 reports a second. Each works for both
+controllers.
+
+* [ ] **19a Gate visualizer.** Circle the stick slowly: the gate's full shape (the farthest reach at
+  each angle), with the notches and Melee's circle on top, and the last sweep for comparison.
+* [ ] **19b 2D plot.** Record a stretch of input and draw its path, sample by sample, over Melee's
+  zones. The zone lines (deadzone and others) come from cited sources (research first).
+* [ ] **19c Button timing.** Presses and releases on a timeline in milliseconds and frames, with
+  double presses flagged and an adjustable threshold for the analog triggers.
+* [ ] **19d Trigger oscilloscope.** Analog and digital over time, with the 43, 49 and 140 lines.
+* [ ] **19e Oscilloscope controls.** The existing scope can be frozen, zoomed and run continuously.
+* [ ] **19f Export.** Every recording to CSV, to share with a controller modder.
+* [ ] **19g Against GTS (15c).** The same controller and tests in GTS and in techchase; any
+  difference explained (GTS polls at about 2000 Hz in its scopes, 120 Hz elsewhere).
+
+## Phase 20: Notch history and a pre-tournament check
+* [ ] **20a Store.** Each calibration, notch check, snapback test and settings snapshot, saved with
+  the date under the controller's name. Local only (the app's data folder), never uploaded; export
+  and import as files.
+* [ ] **20b Compare.** How far each notch has moved since the last calibration, and a "recalibrate
+  this notch" hint past a threshold (research the threshold: how far a notch can drift before a
+  Melee coordinate changes).
+* [ ] **20c Pre-tournament check.** About a minute: origin, the eight notches, a snapback test and
+  the triggers, compared with the history and with Phase 17's rules. One screen: ready, or what
+  to fix.
+
+## Phase 21: Notch targets for modded gates
+* [ ] **21a Research.** Trusted sources for target coordinates and angles: Kadano's notch-modding
+  material, established modders' tables, Melee mechanics references. Note where the community
+  disagrees (players say UCF made shield-drop notches unnecessary, for example). Only targets with
+  a cited source ship.
+* [ ] **21b Target library.** Named targets (max-angle wavedash, firefox angles, and others from
+  21a), by character where it matters.
+* [ ] **21c Tune to a target.** In the Phob's notch step, pick a target for a notch instead of the
+  standard one, and the app says "Tap X" or "Tap Y" toward it. It stays inside Phase 17's
+  modder-notch limits.
+* [ ] **21d GC Ultimate.** Its calibration already nudges notch angles; the same targets apply.
+
+## Phase 22: Phob input lag (expands 13e)
+The mission covers lag as well as setup, and claims need numbers taken on the controller.
+
+* [ ] **22a Method.** How to time a press on a Phob through the adapter to the report, without
+  opening the owner's controller: a microcontroller that presses the button electrically and
+  timestamps it against the adapter's report. Write the method down before building anything.
+  Any soldering or opening a controller is the owner's call.
+* [ ] **22b Filter delay.** How much delay each snapback and smoothing setting adds to fast moves,
+  measured with the 22a rig, so the snapback tuner can show what a higher setting costs. Running
+  the Phob's filter math in the app instead would reuse GPL code: decide that under 13f first.
+* [ ] **22c Phob against the GC Ultimate.** Both through the adapter and over USB, with the
+  late-latch on and off, using Phase 9's methods.
+* [ ] **22d Publish.** The method and the numbers in the README.
+
+Sources (read 2026-11-21): `github.com/CarVac/MeleeConchRuleset` (`ruleset.md`),
+`github.com/greenwave-1/GTS`, Battle Beaver's PhobGCC page, the community PhobGCC settings sheet,
+SmashWiki (shield drop, controller modification), and start.gg rules pages for 2025 events.
 
 ## Rollback
 Hold ZL + Start while plugging in, then drag `official/gcu_r4k/gcu_r4k.uf2` onto the drive (or use

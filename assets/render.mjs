@@ -24,7 +24,7 @@ html,body{margin:0;width:${w}px;height:${h}px;overflow:hidden;background:${C.bg}
   <div style="font-size:120px;font-weight:800;color:${C.text};letter-spacing:-0.04em;line-height:1">${mark}</div>
   <div style="display:flex;flex-direction:column;gap:14px">
     <div style="font-size:64px;font-weight:800;color:${C.title};letter-spacing:-0.02em;line-height:1">techchase</div>
-    <div style="font-size:20px;color:${C.dim}">tournament firmware for the GC Ultimate</div>
+    <div style="font-size:20px;color:${C.dim}">PhobGCC calibration, no Dolphin needed</div>
   </div>
 </div>`;
 

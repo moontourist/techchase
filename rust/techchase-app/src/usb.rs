@@ -90,9 +90,15 @@ fn handle(app: &AppHandle, event: Event) {
                 app.emit("usb-disconnect", id).ok();
             }
         }
+        Event::Arrived(Kind::Adapter, _) => {
+            app.emit("adapter-connect", ()).ok();
+        }
+        Event::Left(Kind::Adapter, _) => {
+            app.emit("adapter-disconnect", ()).ok();
+        }
         Event::Present(Kind::Adapter | Kind::Other, _)
-        | Event::Arrived(Kind::Adapter | Kind::Other, _)
-        | Event::Left(Kind::Adapter | Kind::Other, _) => {}
+        | Event::Arrived(Kind::Other, _)
+        | Event::Left(Kind::Other, _) => {}
     }
 }
 

@@ -6,6 +6,9 @@ import {
 import { makeDemoDevice } from './demo.js';
 import { createLive } from './live.js';
 import { createCalibration } from './calib-ui.js';
+import { AdapterPad } from './adapter-source.js';
+import { createPhobCalibration } from './phob-calib.js';
+import { createSnapback } from './snapback-ui.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -41,11 +44,43 @@ const state = {
   savedJobs: null,
   unsaved: false,
   stayDisconnected: false,
+  pad: null,
+  unsubPadData: null,
 };
 const liveView = createLive({ root: $('#tab-live'), entries: () => state.entries });
 const calib = createCalibration({ root: $('#tab-live'), getDev: () => state.dev, onChange: () => renderSaveBar(), toast });
 
+const snap = createSnapback({
+  root: $('#tab-live'),
+  toast,
+  gcu: {
+    canWrite: () => !!state.dev && holdsChanges(),
+    tuning: (s) => calib.tuning(s),
+    setTuning: (s, p) => calib.setTuning(s, p),
+  },
+});
+
+const PAD_SETTLED = 12;
+const phob = createPhobCalibration({
+  root: $('#tab-live'),
+  onDone: () => setTimeout(() => {
+    const p = state.pad?.last?.[state.pad.port];
+    const o = state.pad?.origin;
+    if (!p || !o) return;
+    const near = [p.main.x - o.lx, p.main.y - o.ly, p.c.x - o.rx, p.c.y - o.ry].every((d) => Math.abs(d) <= PAD_SETTLED);
+    if (near) state.pad.recenter();
+  }, 1000),
+});
+
 function renderCalibButtons() {
+  $('#snapBtn').disabled = !state.dev && !state.pad;
+  if (state.pad) {
+    for (const id of ['#calibL', '#calibR']) { $(id).disabled = false; $(id).title = ''; }
+    $('#calibReset').disabled = true;
+    $('#calibReset').title = 'A Phob resets its own settings: turn safe mode off, hold A+B+Z and press Start. That keeps the stick calibration.';
+    $('#calibHint').textContent = '';
+    return;
+  }
   const ok = !!state.dev && holdsChanges();
   for (const id of ['#calibL', '#calibR', '#calibReset']) {
     $(id).disabled = !ok;
@@ -57,8 +92,13 @@ $('#calibReset').addEventListener('click', () => {
   if (!confirm('Reset both sticks to the factory settings? Notches, deadzones and snapback go back to how the controller shipped, and the centers are measured again (let go of the sticks). It works at once; nothing is saved until you press Save to controller.')) return;
   calib.reset();
 });
+$('#snapBtn').addEventListener('click', () => {
+  if (!state.dev && !state.pad) return;
+  snap.start(state.pad ? 'phob' : 'gcu');
+});
 for (const [id, side] of [['#calibL', 'l'], ['#calibR', 'r']]) {
   $(id).addEventListener('click', () => {
+    if (state.pad) { phob.start(side === 'l' ? 'main' : 'c'); return; }
     if (calib.step !== 'idle') return;
     calib.start(side);
   });
@@ -120,7 +160,7 @@ async function attach(dev) {
   state.devInfo = await dev.deviceInfo();
   state.info = await dev.info();
   liveView.reset();
-  state.unsubLive = dev.onLive((rep) => liveView.push(rep));
+  state.unsubLive = dev.onLive((rep) => { liveView.push(rep); snap.feedGcu(rep); });
   state.unsubPad = dev.onLive(lightPad);
   await dev.setLiveMode(LIVE.TECHCHASE);
   state.unsaved = !!state.info.unsaved;
@@ -135,13 +175,80 @@ async function attach(dev) {
   if (!state.info.techchase) toast('Connected. This controller runs official firmware: remapping and latency need the techchase firmware.', 'error');
 }
 
+const ADAPTER_FIRST_REPORT_MS = 600;
+
+function renderPadLine() {
+  const pad = state.pad;
+  $('#padLine').hidden = !pad;
+  if (!pad) return;
+  const ports = pad.connectedPorts();
+  $('#padWhere').textContent = ports.includes(pad.port)
+    ? `${pad.name} · port ${pad.port + 1}`
+    : `${pad.name} · no controller in port ${pad.port + 1}. Plug one in.`;
+  $('#padPorts').replaceChildren(...(ports.length > 1 ? ports.map((i) => {
+    const b = document.createElement('button');
+    b.className = `ghost small-btn${i === pad.port ? ' on' : ''}`;
+    b.textContent = `port ${i + 1}`;
+    b.addEventListener('click', () => { pad.usePort(i); liveView.reset(); renderPadLine(); renderConnection(); });
+    return b;
+  }) : []));
+}
+
+async function attachPad() {
+  const pad = new AdapterPad();
+  await pad.open();
+  await new Promise((r) => setTimeout(r, ADAPTER_FIRST_REPORT_MS));
+  const ports = pad.connectedPorts();
+  pad.usePort(ports.length ? ports[0] : 0);
+  state.pad = pad;
+  liveView.reset();
+  liveView.setGate('phob');
+  state.unsubPadData = pad.onReading((p, rep) => { liveView.push(rep); phob.feed(p, rep); snap.feedPad(p, rep); });
+  pad.onPorts(() => { renderPadLine(); renderConnection(); });
+  renderConnection();
+  renderPadLine();
+  renderCalibButtons();
+  showTab('live');
+  if (!ports.length) toast('The adapter is open, but no controller is plugged into it.', 'error');
+}
+
+async function detachPad(msg) {
+  const pad = state.pad;
+  if (!pad) return;
+  state.pad = null;
+  state.unsubPadData?.();
+  state.unsubPadData = null;
+  phob.stop();
+  snap.stop();
+  liveView.stop();
+  liveView.reset();
+  liveView.setGate('gcu');
+  try { await pad.close(); } catch { }
+  renderPadLine();
+  renderConnection();
+  renderCalibButtons();
+  showTab(currentTab());
+  if (msg) toast(msg);
+}
+
+async function connectAdapter() {
+  state.stayDisconnected = false;
+  await guard(() => attachPad(), 'Could not open the adapter');
+}
+
 async function connect() {
   if (!navigator.usb) return;
   let usbDev;
   try {
     usbDev = await navigator.usb.requestDevice({ filters: FILTERS });
   } catch (e) {
-    if (window.__TAURI__) toast(e.message, 'error');
+    if (window.__TAURI__) {
+      try {
+        await attachPad();
+      } catch (adapterError) {
+        toast(`No GC Ultimate found, and no GameCube adapter could be opened (${adapterError.message || adapterError}).`, 'error');
+      }
+    }
     return;
   }
   await guard(() => attach(new GcuDevice(usbDev)), 'Could not connect');
@@ -170,6 +277,7 @@ function detach(msg) {
   liveView.stop();
   liveView.reset();
   calib.detach();
+  snap.stop();
   state.dev = null;
   state.entries = [];
   state.selected = null;
@@ -193,6 +301,19 @@ if (navigator.usb) {
 function renderConnection() {
   const s = $('#connStatus');
   const btn = $('#connectBtn');
+  for (const b of $$('.tabs button')) {
+    const off = !!state.pad && b.dataset.tab !== 'live';
+    b.disabled = off;
+    b.title = off ? 'Needs a GC Ultimate on USB. A Phob changes its settings through button combos, which the Live tab walks you through.' : '';
+  }
+  if (state.pad) {
+    const ports = state.pad.connectedPorts();
+    s.textContent = ports.includes(state.pad.port) ? `Adapter port ${state.pad.port + 1}` : 'Adapter, no controller';
+    s.className = `status ${ports.includes(state.pad.port) ? 'on' : 'demo'}`;
+    btn.textContent = 'Disconnect';
+    $('#welcome').hidden = true;
+    return;
+  }
   if (state.dev) {
     s.textContent = state.dev.demo ? 'Demo controller' : `${state.dev.productName} · ${FORMATS[state.info?.reportFormat] ?? 'connected'}`;
     s.className = `status ${state.dev.demo ? 'demo' : 'on'}`;
@@ -206,6 +327,11 @@ function renderConnection() {
 }
 
 $('#connectBtn').addEventListener('click', async () => {
+  if (state.pad) {
+    state.stayDisconnected = true;
+    await detachPad();
+    return;
+  }
   if (state.dev) {
     if (hasUnsaved() && !confirm('You have unsaved changes. The controller keeps them until it’s unplugged, then goes back to its saved layout. Disconnect anyway?')) return;
     const d = state.dev;
@@ -221,11 +347,11 @@ $('#connectBtn').addEventListener('click', async () => {
 function currentTab() { return $('.tabs [aria-selected="true"]').dataset.tab; }
 function showTab(name) {
   for (const b of $$('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
-  for (const s of $$('.tab')) s.hidden = !state.dev || s.id !== `tab-${name}`;
+  for (const s of $$('.tab')) s.hidden = !(state.dev || state.pad) || s.id !== `tab-${name}`;
   if (name !== 'latency') stopLive();
   if (name === 'profiles') renderProfiles();
   if (name === 'controls' && state.dev) renderControls();
-  if (name === 'live' && state.dev) liveView.start(); else liveView.stop();
+  if (name === 'live' && (state.dev || state.pad)) liveView.start(); else liveView.stop();
   if (name === 'device' && state.dev) renderDolphin();
 }
 
@@ -359,7 +485,7 @@ function renderSaveBar() {
   const n = unsavedCount();
   const parts = [];
   if (remapsUnsaved()) parts.push(n === null ? 'Unsaved button changes.' : `${n} unsaved button change${n === 1 ? '' : 's'}.`);
-  if (state.dev && calib.pending) parts.push('Stick calibration not saved.');
+  if (state.dev && calib.pending) parts.push('Stick settings not saved.');
   $('#saveBarText').textContent = `${parts.join(' ')} Changes work now: try them on the Live tab, then save.`;
   if (state.dev) renderSavedState();
 }
@@ -369,6 +495,7 @@ async function keepChanges() {
     await state.dev.save();
     markSaved();
     calib.saved();
+    snap.refresh();
     renderControls();
     if (currentTab() === 'profiles') renderProfiles();
     toast('Saved to the controller.', 'ok');
@@ -379,6 +506,7 @@ async function dropChanges() {
   await guard(async () => {
     if (calib.step !== 'idle') await calib.cancel();
     else if (calib.pending) await calib.discard();
+    snap.reload();
     if (remapsUnsaved()) {
       await state.dev.revert();
       await refreshMap();
@@ -780,4 +908,13 @@ if (params.has('demo')) {
   $('#connectBtn').disabled = true;
 } else {
   autoConnect();
+}
+
+if (!window.__TAURI__) {
+  $('#adapterBtn').disabled = true;
+  $('#adapterBrowser').hidden = false;
+} else {
+  $('#adapterBtn').addEventListener('click', connectAdapter);
+  $('#padZero').addEventListener('click', () => { state.pad?.recenter(); toast('Centers taken from where the sticks rest now.', 'ok'); });
+  window.__TAURI__.event.listen('adapter-lost', () => detachPad('The adapter was unplugged (or Dolphin took it over).'));
 }

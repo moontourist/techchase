@@ -70,6 +70,9 @@ try {
   });
   await cdp('Runtime.enable');
   await cdp('Page.enable');
+  await cdp('Page.navigate', { url: APP });
+  check(await until(`document.readyState === 'complete' && !!document.querySelector('#adapterBtn') && document.querySelector('#adapterBtn').disabled && !document.querySelector('#adapterBrowser').hidden`), 'in a browser, the Phob section says the adapter needs the desktop app');
+  check(await js(`document.querySelector('#welcomeAdapter').compareDocumentPosition(document.querySelector('.welcome-gcu')) === Node.DOCUMENT_POSITION_FOLLOWING`), 'the Phob comes first on the welcome screen');
   await cdp('Page.navigate', { url: `${APP}?demo` });
 
   check(await until(`document.querySelectorAll('#rows li').length > 10`), 'demo controller connects and lists buttons');
@@ -170,7 +173,7 @@ try {
   await js(`window.demoDevice.stick.l = { angle: 30, distance: 4 }; document.querySelector('#calibL').click()`);
   check(await until(`!document.querySelector('#calib').hidden`), 'calibrate opens the wizard');
   check(await until(`/right notch/.test(document.querySelector('#calibStep').textContent)`, 5000), 'after the center, it asks for the first notch');
-  check(await js(`!document.querySelector('#saveBar').hidden && /Stick calibration not saved/.test(document.querySelector('#saveBarText').textContent)`), 'the save bar shows the calibration as unsaved');
+  check(await js(`!document.querySelector('#saveBar').hidden && /Stick settings not saved/.test(document.querySelector('#saveBarText').textContent)`), 'the save bar shows the calibration as unsaved');
   await js(`window.demoDevice.stick.l = { angle: 120, distance: 1500 }`);
   check(await until(`/different notch/i.test(document.querySelector('#calibMsg').textContent)`, 3000), 'a hold in the wrong notch is refused');
   for (let i = 0; i < 8; i++) {
@@ -194,6 +197,23 @@ try {
   await js(`document.querySelector('#calibCancel').click()`);
   check(await until(`document.querySelector('#calib').hidden && document.querySelector('#saveBar').hidden`), 'cancel closes the wizard and the bar');
   check(await until(`Array.from(window.demoDevice.analog).join(',') === ${JSON.stringify(before)}`), 'cancel restores the settings byte for byte');
+
+  const tuning = (side = 'l') => js(`(async () => (await import('./calibration.js')).readTuning(window.demoDevice.analog, '${side}'))()`);
+  const tuneBefore = await js(`Array.from(window.demoDevice.analog).join(',')`);
+  await js(`document.querySelector('#snapBtn').click()`);
+  check(await until(`!document.querySelector('#snap').hidden && !document.querySelector('#snapGcu').hidden && document.querySelector('#snapPhob').hidden`), 'Tune snapback opens the GC Ultimate version of the panel');
+  check(await until(`!document.querySelector('#snapPreHead').hidden && [...document.querySelectorAll('#snapType button')].some((b) => b.getAttribute('aria-pressed') === 'true')`), 'it shows the before-filter column and the current filter');
+  await js(`document.querySelector('#snapType [data-v=lowpass]').click()`);
+  check(await until(`!document.querySelector('#saveBar').hidden`), 'changing the filter raises the save bar');
+  const lp = await tuning();
+  check(lp.snapbackType === 0 && lp.snapbackIntensity >= 300 && lp.snapbackIntensity <= 1500, `low-pass is written to the controller (type ${lp.snapbackType}, ${lp.snapbackIntensity})`);
+  check(await until(`!document.querySelector('#snapCutRow').hidden`), 'low-pass shows its cutoff slider');
+  await js(`const c = document.querySelector('#snapCut'); c.value = '450'; c.dispatchEvent(new Event('change'))`);
+  check(await until(`(async () => (await import('./calibration.js')).readTuning(window.demoDevice.analog, 'l').snapbackIntensity === 450)()`), 'the slider writes a 45 Hz cutoff');
+  check((await tuning('r')).snapbackType === (await js(`(async () => (await import('./calibration.js')).readTuning(new Uint8Array(${JSON.stringify(tuneBefore)}.split(',').map(Number)), 'r').snapbackType)()`)), 'the c-stick filter is untouched');
+  await js(`document.querySelector('#discardBtn').click()`);
+  check(await until(`Array.from(window.demoDevice.analog).join(',') === ${JSON.stringify(tuneBefore)}`), 'Discard puts the filter back byte for byte');
+  await js(`document.querySelector('#snapClose').click()`);
 
   const errs = events.filter((e) => e.method === 'Runtime.exceptionThrown' || (e.method === 'Runtime.consoleAPICalled' && e.params.type === 'error'));
   check(errs.length === 0, `no console errors${errs.length ? `: ${JSON.stringify(errs[0].params).slice(0, 300)}` : ''}`);

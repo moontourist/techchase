@@ -30,15 +30,28 @@
 
 <main>
   <section id="welcome" class="welcome">
-    <h1>Plug in your GC Ultimate and press <em>Connect controller</em>.</h1>
-    <p>Use a USB cable. Chrome or Edge will list the controller; pick it and press <b>Connect</b>.</p>
-    <ul class="hints">
-      <li>The controller must run the <b>techchase</b> firmware. On official firmware the app can still read it, but can't remap.</li>
-      <li>Close <code>gcu.py</code>, HHL's web app and Dolphin first: only one program can talk to the controller at a time.</li>
-      <li>In Slippi mode the controller is a plain GameCube adapter, so the app can’t connect. Unplug it to get back to the app.</li>
-    </ul>
+    <div id="welcomeAdapter" class="welcome-phob">
+      <h1>Plug your Phob into a GameCube adapter and press <em>Use adapter</em>.</h1>
+      <p>A Lossless adapter or Nintendo's, any port. Close Dolphin first: only one program can read the adapter.</p>
+      <ul class="hints">
+        <li><b>Calibrate</b> either stick, one step at a time. The app shows the Phob's target and where your stick lands in Melee coordinates.</li>
+        <li><b>Tune snapback.</b> Flick the stick, see how far it swings past center, and get the exact buttons to press to fix it.</li>
+        <li><b>Check notches</b> against Melee's coordinates, the way GTS shows them, with no Dolphin and no config ROM.</li>
+      </ul>
+      <button id="adapterBtn" class="primary">Use adapter</button>
+      <p id="adapterBrowser" class="warn" hidden>The Phob tools are in the techchase desktop app. A browser can't open a GameCube adapter.</p>
+    </div>
+    <div class="welcome-gcu">
+      <h2>Have a GC Ultimate?</h2>
+      <p>Plug it in with a USB cable and press <b>Connect controller</b>. Chrome or Edge will list it; pick it and press <b>Connect</b>.</p>
+      <ul class="hints">
+        <li>The controller must run the <b>techchase</b> firmware. On official firmware the app can still read it, but can't remap.</li>
+        <li>Close <code>gcu.py</code>, HHL's web app and Dolphin first: only one program can talk to the controller at a time.</li>
+        <li>In Slippi mode the controller is a plain GameCube adapter, so connect it with <b>Use adapter</b> instead.</li>
+      </ul>
+      <p id="noWebUsb" class="warn" hidden>This browser has no WebUSB. Open this page in Chrome or Edge (desktop or Android).</p>
+    </div>
     <p class="muted"><a href="?demo">Try the demo</a>: it works without a controller.</p>
-    <p id="noWebUsb" class="warn" hidden>This browser has no WebUSB. Open this page in Chrome or Edge (desktop or Android).</p>
   </section>
 
   <section id="tab-live" class="tab" hidden>
@@ -49,12 +62,55 @@
       </div>
       <p class="live-meta"><span id="liveRate">--</span> <span id="liveDrops" class="muted"></span></p>
     </div>
+    <p id="padLine" class="pad-line small" hidden><span id="padWhere"></span> <span id="padPorts"></span> <button id="padZero" class="ghost small-btn" title="Takes the sticks' rest position as center, as Dolphin does when a controller is plugged in">re-zero</button></p>
     <p id="liveCoarse" class="warn small" hidden>This firmware streams a coarse view (sticks in steps of about 3 units). Update to the latest techchase firmware for full precision.</p>
     <div class="calib-bar">
       <span id="calibHint" class="warn small"></span>
       <button id="calibL" class="ghost">Calibrate main stick</button>
       <button id="calibR" class="ghost">Calibrate c-stick</button>
+      <button id="snapBtn" class="ghost">Tune snapback</button>
       <button id="calibReset" class="ghost danger">Reset sticks to factory</button>
+    </div>
+    <div id="phobCalib" class="calib phob" hidden>
+      <div class="calib-head"><h3 id="phobTitle"></h3><button id="phobClose" class="ghost small-btn">close</button></div>
+      <ol id="phobSteps" class="phob-steps"></ol>
+      <div class="calib-body">
+        <svg id="phobPic" viewBox="-60 -60 120 120" role="img" aria-label="Where the Phob wants the stick"></svg>
+        <div>
+          <p id="phobDo" class="calib-step"></p>
+          <p id="phobWhy" class="muted"></p>
+          <label id="phobEightRow" class="small"><input type="checkbox" id="phobEight" checked> My shell has only the 8 standard notches (no modder notches)</label>
+          <ul id="phobLog" class="phob-log small"></ul>
+        </div>
+      </div>
+    </div>
+    <div id="snap" class="calib snap" hidden>
+      <div class="calib-head">
+        <h3 id="snapTitle"></h3>
+        <div class="snap-tools">
+          <div id="snapStick" class="seg small-seg"><button data-v="l" aria-pressed="true">main</button><button data-v="r" aria-pressed="false">c-stick</button></div>
+          <button id="snapClear" class="ghost small-btn">clear</button>
+          <button id="snapClose" class="ghost small-btn">close</button>
+        </div>
+      </div>
+      <p class="calib-step">1. Push the stick all the way to one side and let it go. Do every direction 3 times.</p>
+      <p class="muted small">Snapback is the stick swinging past center when you let go. If it swings past Melee's deadzone (0.2875), the game can read a press the other way: a turnaround, or a dash back.</p>
+      <table class="notches snap-table"><thead><tr><th>let go from</th><th>times</th><th>worst swing</th><th id="snapPreHead">before filter</th><th></th></tr></thead><tbody id="snapRows"></tbody></table>
+      <div id="snapPhob">
+        <p class="calib-step">2. Read your settings: turn off safe mode (hold A + X + Y + Start for 1 second), then press L + Start.</p>
+        <p id="snapPhobSettings" class="muted">Not read yet.</p>
+      </div>
+      <div id="snapGcu">
+        <p class="calib-step">2. Filter</p>
+        <div class="snap-filter">
+          <div id="snapType" class="seg small-seg"><button data-v="auto">Auto</button><button data-v="lowpass">Low-pass</button><button data-v="off">Off</button></div>
+          <label id="snapCutRow" class="small" hidden>cutoff <input type="range" id="snapCut" min="300" max="1500" step="150"> <span id="snapCutVal"></span> <span class="muted">lower filters more</span></label>
+        </div>
+        <p id="snapGcuNote" class="muted small"></p>
+      </div>
+      <p class="calib-step">3. What to do</p>
+      <ul id="snapAdvice" class="snap-advice"></ul>
+      <p id="snapAfter" class="muted small"></p>
     </div>
     <div id="calib" class="calib" hidden>
       <div class="calib-head"><h3 id="calibTitle"></h3><button id="calibCancel" class="ghost small-btn">cancel</button></div>

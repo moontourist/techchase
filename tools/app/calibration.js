@@ -165,6 +165,15 @@ export function readTuning(bytes, side) {
   };
 }
 
+export function writeTuning(bytes, side, patch) {
+  const out = new Uint8Array(bytes);
+  const v = view(out);
+  const [a, b] = side === 'l' ? [0, 0] : [1, 2];
+  if (patch.snapbackType !== undefined) v.setUint8(TUNING_AT + 4 + a, patch.snapbackType);
+  if (patch.snapbackIntensity !== undefined) v.setUint16(TUNING_AT + 10 + b, patch.snapbackIntensity, true);
+  return out;
+}
+
 export function defaultSlots() {
   return Array.from({ length: SLOT_COUNT }, (_, i) => (i < NOTCH_COUNT
     ? { inAngle: i * 45, outAngle: i * 45, deadzone: DEFAULT_DEADZONE, inDistance: FACTORY.inDistance, outDistance: DEFAULT_OUT_DISTANCE, enabled: true }

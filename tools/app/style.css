@@ -225,7 +225,27 @@ main { max-width: 1180px; margin: 0 auto; padding: 1.6rem 1.4rem 4rem; }
 .calib-head { display: flex; justify-content: space-between; align-items: center; }
 .calib-head h3 { margin: 0; }
 .calib-body { display: grid; grid-template-columns: 180px 1fr; gap: 1.2rem; align-items: start; margin-top: .6rem; }
-#calibPic { width: 180px; height: 180px; }
+#calibPic, #phobPic { width: 180px; height: 180px; }
+#phobPic .gate { fill: none; stroke: var(--pad-line); stroke-dasharray: 4 3; }
+#phobPic .notch { fill: var(--bg-sunken); stroke: var(--text-muted); }
+#phobPic .notch.done { fill: var(--color-success); stroke: var(--color-success); }
+#phobPic .notch.target { fill: var(--color-warning); stroke: var(--color-warning); filter: drop-shadow(0 0 4px var(--color-warning)); }
+#phobPic .live { fill: var(--accent-secondary); }
+.phob-steps { display: flex; flex-wrap: wrap; gap: .3rem 1.4rem; list-style: none; padding: 0; margin: .6rem 0 0; counter-reset: step; }
+.phob-steps li { color: var(--text-muted); counter-increment: step; }
+.phob-steps li::before { content: counter(step) ". "; }
+.phob-steps li.done { color: var(--color-success); }
+.phob-steps li.done::before { content: "ok "; }
+.phob-steps li.now { color: var(--accent-primary); font-weight: 700; }
+.phob-log { list-style: none; padding: 0; margin: .6rem 0 0; }
+.phob-log li { color: var(--text-subtle); }
+.phob-log li.ok { color: var(--color-success); }
+.phob-log li.warn { color: var(--color-warning); }
+.pad-line { display: flex; gap: .8rem; align-items: center; color: var(--text-subtle); margin: 0 0 .4rem; }
+.pad-line button.on { border-color: var(--accent-primary); color: var(--accent-primary); }
+.welcome-gcu { border-top: 1px solid var(--border-primary); margin-top: 1.8rem; padding-top: 1rem; }
+.welcome-gcu h2 { font-size: 1.05rem; }
+.welcome-phob .primary { margin-top: .4rem; }
 #calibPic .gate { fill: none; stroke: var(--pad-line); stroke-dasharray: 4 3; }
 #calibPic .notch { fill: var(--bg-sunken); stroke: var(--text-muted); }
 #calibPic .notch.done { fill: var(--color-success); stroke: var(--color-success); }
@@ -320,3 +340,16 @@ svg.stick .notch-dots .off { fill: var(--color-error); }
 .notches td.near { color: var(--color-warning); }
 .notches td.off { color: var(--color-error); }
 #scope { width: 100%; height: 230px; display: block; background: var(--bg-sunken); }
+.snap-tools { display: flex; gap: .6rem; align-items: center; }
+.snap-table { margin: .4rem 0 .8rem; }
+.snap-table td.verdict.ok { color: var(--color-success); }
+.snap-table td.verdict.close { color: var(--color-warning); }
+.snap-table td.verdict.crosses { color: var(--color-error); font-weight: 700; }
+.snap-filter { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
+.snap-filter input[type=range] { vertical-align: middle; accent-color: var(--accent-primary); }
+.snap-advice { list-style: none; padding: 0; margin: 0; }
+.snap-advice li { margin: .3rem 0; color: var(--text-subtle); }
+.snap-advice li.ok { color: var(--color-success); }
+.snap-advice li.change, .snap-advice li.read { color: var(--text-primary); }
+.snap-advice li.stuck { color: var(--color-warning); }
+.ok-text { color: var(--color-success); }

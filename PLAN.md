@@ -13,6 +13,10 @@ FCC ID 2BM3E-GCU-R4K). Upstream firmware target: `hoja-device-fw/rp2040/gcu_1`.
 calibrate them and to cut their input lag, so every aftermarket controller gets the same lag
 reduction and is ready for tournament play.**
 
+**Focus, from 2026-11-21: the Phob first.** Phob calibration is what will bring players in; few
+use a GC Ultimate, and its side does what HHL's firmware does, a little better. New work starts
+with the Phob, the app and README lead with it, and the GC Ultimate gets the same where it fits.
+
 Every decision gets checked against it:
 * **Calibrate or cut lag?** A feature should help a player calibrate a Phob or a GC Ultimate, or
   lower its input lag. Anything else waits.
@@ -400,13 +404,21 @@ Steps:
   * Whether HOJA's `rp2040/phob_2` target fits a 2.0.5 board. A Phob running HOJA plus the
     techchase patches would speak this app's protocol directly. That's an option for other
     players only: the owner keeps PhobGCC.
-* [ ] **13b Read the Phob.** Poll it through the GameCube adapter (Lossless or official, WinUSB,
+* [x] **13b Read the Phob.** Done in the desktop app 2026-11-21 (14e). Poll it through the GameCube adapter (Lossless or official, WinUSB,
   RAW_IO, like `tools/slippi_poll_ab.py`) from the desktop app. Dolphin must be closed while it
   runs.
 * [ ] **13c Guided setup.** Built as 14e, inside the live view.
-  * Live stick and trigger view with the Melee notches overlaid.
-  * Step-by-step calibration that prompts each combo.
-  * Snapback, smoothing and trigger settings, with each value decoded from the reports.
+  * [x] Live stick and trigger view with the Melee notches overlaid.
+  * [x] Step-by-step calibration that prompts each combo (14e).
+  * [x] Snapback (2026-11-21): the snapback tuner. It measures each release, reads the settings
+    back from L + Start's 2 s display (snapback on the main stick, smoothing on the c-stick,
+    waveshaping on the triggers, each 127 plus the value), and reads each A + X or A + Y plus
+    D-pad change from the c-stick's 0.75 s display. The Phob's range is -10 to 10, standard 4: 0
+    turns the filter off, and minus values switch to a low-pass that gets stronger toward -10.
+    Every change needs safe mode off.
+  * [ ] Smoothing, waveshaping and trigger settings, decoded the same way (their displays are
+    known: smoothing on the c-stick after R + X or R + Y plus D-pad, waveshaping on the c-stick
+    after L + X or L + Y plus D-pad).
   * A check of the result against the coordinates GTS shows.
   * The app reads and guides. It can't send settings through an adapter, which only passes polls
     and rumble.
@@ -574,7 +586,39 @@ correct and connected at a tournament, and 14d and 14e are the calibration half 
     block, captures both sticks and writes the block back unchanged.
   * Left: the protocol test on the controller, then the owner's run by hand, checked against GTS
     (15c) and surviving a replug.
-* [ ] **14e Guided calibration, Phob.**
+* [ ] **14e Guided calibration, Phob.** Started 2026-11-21, after the owner called the GC Ultimate side
+  done for now ("it can pretty much do everything the main firmware can do, but a little better").
+  * Built:
+    * The desktop app reads a GameCube adapter (`adapter_open`, raw reports batched every 8 ms,
+      1000 a second on the Lossless adapter) and feeds the Live view from the chosen port. Stick
+      positions count from the first reading after the controller connects, as Dolphin does
+      (`PAD_GET_ORIGIN`), with a re-zero button. Tabs that need a GC Ultimate are disabled with
+      the reason. Connect falls back to the adapter when no GC Ultimate is plugged in.
+    * `phob-track.js` follows the Phob from what it shows: a command freeze (every stick axis at
+      255; 2 s, or 4 s when safe mode goes back on), the target on the other stick (127.5 plus
+      `calcStickValues`, so about 100 out on a 28 degree sphere), measurement's alternating center
+      and rim points in `_calOrder`, then the notch step (rim to rim at the measured angles) and
+      the end (the other stick back at center). It flags a point measured with the stick pushed
+      or centered when it shouldn't be.
+    * `phob-calib.js` is the guide: the five steps, one instruction at a time, the target on a
+      gate picture, and in the notch step where the notch lands in Melee coordinates with which
+      button to tap (X turns clockwise: the firmware lowers the notch angle).
+    * Tests: `tests/app/phob_track_test.mjs` (the Phob's own display formula, a whole run, Z,
+      Start, warnings, hints) and `tests/app/phob_ui_test.mjs` (the app with a fake desktop
+      bridge playing a whole calibration).
+  * Fixed after the owner's first run (2026-11-21):
+    * Start was never seen. A + X + Y + L acts the moment the fourth button goes down, and the
+      Phob blanks the buttons in the same step, so the adapter never shows all four together.
+      Now a 2 s freeze while waiting counts as the start; L or R just before picks the stick,
+      else the one the player clicked. It also joins a calibration already under way: each
+      measuring target is an exact pair of numbers (drawn at `_notchAngleDefaults`).
+    * The gates were drawn on the GC Ultimate's scale (128 out), so a Phob's stick (100 out)
+      never reached them. The guide and the live gate now use the Phob's: 100 on the cardinals,
+      104 on the diagonals.
+    * Clearer wording: one short instruction per step ("Push the stick into the up-right notch.
+      Hold it there and press A.", "Tap Y."), and in-between spots named "between up and
+      up-left", not "up, left a notch".
+  * Left: a full run on the owner's Phob (main stick, then the c-stick), then the rest of 13c.
   * A Phob takes no commands over USB. It calibrates with button combos on the controller (A,
     X, Y plus L or R, then A for each point, then notch adjustment).
   * The app can still follow along:
@@ -848,7 +892,13 @@ as up-right (76, 73) = (0.7125, 0.6875)).
   * [x] **Sharper picture** (see 15h) and **theme:** Nord-toned GameCube colors, the press glow in
     the frost accent instead of white, the app's font weight, and the D-pad arrows and the Home,
     Capture, Minus and Power icons drawn as shapes (the font has no such symbols).
-* [ ] **15j Snapback calibration.** Asked for 2026-11-21. Measure each stick's snapback (release
+* [x] **15j Snapback calibration.** Asked for 2026-11-21. Built the same day as the snapback tuner,
+  shared with the Phob (13c): flick and let go, and each direction's worst swing past center is
+  measured before and after the filter and graded against Melee's deadzone (0.2875, 23 units;
+  0.2 is "close"). On the GC Ultimate the tuner sets the filter in one click (Auto, low-pass 30 to
+  150 Hz, off), held until Save like a calibration. Advice: off, turn on Auto; Auto not catching
+  it, low-pass 60 Hz; low-pass, 15 Hz lower each time. Left: fitting the spring model from the
+  app (the firmware's capture stream is there; HHL's web app does it today). The original ask: Measure each stick's snapback (release
   from the rim, the way the snapback oscilloscope does) and set the filter from what the Melee and
   Smash community knows about it: the firmware already has the low-pass and Auto filters and a
   per-stick spring model (`snapbackSpringCfg_s`, fitted per octant). The live report carries the

@@ -70,17 +70,23 @@ impl Adapter {
     }
 
     pub fn read(&mut self, timeout: Duration) -> Result<Option<Reading>> {
+        Ok(self.read_raw(timeout)?.map(|report| Reading {
+            at: Instant::now(),
+            ports: adapter::parse_report(&report),
+        }))
+    }
+
+    pub fn read_raw(&mut self, timeout: Duration) -> Result<Option<Vec<u8>>> {
         let Some(done) = self.inp.wait_next_complete(timeout) else {
             return Ok(None);
         };
-        let at = Instant::now();
         let status = done.status;
-        let ports = adapter::parse_report(done.buffer.get(..done.actual_len).unwrap_or_default());
+        let report = done.buffer.get(..done.actual_len).unwrap_or_default().to_vec();
         let mut buf = done.buffer;
         buf.clear();
         self.inp.submit(buf);
         status.map_err(|e| UsbError::Read(Device::Adapter, e))?;
-        Ok(Some(Reading { at, ports }))
+        Ok(Some(report))
     }
 }
 

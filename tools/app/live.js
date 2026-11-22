@@ -6,6 +6,7 @@ const TRAIL_MS = 600;
 const TRAIL_STEPS = 6;
 const SCOPE_MS = 2500;
 const HOLD_MS = 250;
+const GATES = { gcu: { cardinal: 103, diagonal: 98 }, phob: { cardinal: 100, diagonal: 104 } };
 const GC_BUTTONS = ['A', 'B', 'X', 'Y', 'Z', 'L', 'R', 'START', 'UP', 'DOWN', 'LEFT', 'RIGHT'];
 const BUTTON_TEXT = { START: 'Start', UP: '▲', DOWN: '▼', LEFT: '◀', RIGHT: '▶' };
 
@@ -53,6 +54,7 @@ export function createLive({ root, entries }) {
   let reports = [];
   let lastSeq = null;
   let dropped = 0;
+  let gate = GATES.gcu;
 
   const btnBox = root.querySelector('#liveButtons');
   btnBox.textContent = '';
@@ -82,7 +84,8 @@ export function createLive({ root, entries }) {
     drawGates();
   });
 
-  function gc(s, k) { return { x: gcAxis(s[`${k}x`]), y: gcAxis(s[`${k}y`]) }; }
+  const axis = (rep, v) => (rep.gc ? Math.max(-128, Math.min(127, v)) : gcAxis(v));
+  function gc(rep, s, k) { return { x: axis(rep, s[`${k}x`]), y: axis(rep, s[`${k}y`]) }; }
 
   function capture(which, p, now) {
     const st = stick[which];
@@ -109,13 +112,13 @@ export function createLive({ root, entries }) {
       lastSeq = rep.seq;
     }
     for (const k of ['l', 'r']) {
-      const p = gc(rep.game, k);
+      const p = gc(rep, rep.game, k);
       const tr = stick[k].trail;
       tr.push({ ...p, t: now });
       while (tr.length && now - tr[0].t > TRAIL_MS) tr.shift();
       capture(k, p, now);
     }
-    scope.push({ t: now, game: rep.game, pre: rep.pre });
+    scope.push({ t: now, game: rep.game, pre: rep.pre, gc: rep.gc });
     while (scope.length && now - scope[0].t > SCOPE_MS) scope.shift();
   }
 
@@ -125,7 +128,7 @@ export function createLive({ root, entries }) {
       const pts = NOTCHES.map((n, i) => {
         if (got[i]) return [got[i].x, got[i].y];
         const a = (n.deg * Math.PI) / 180;
-        const r = n.deg % 90 ? 98 : 103;
+        const r = n.deg % 90 ? gate.diagonal : gate.cardinal;
         return [r * Math.cos(a), r * Math.sin(a)];
       });
       views[k].gate.setAttribute('points', pts.map((p) => p.join(',')).join(' '));
@@ -194,7 +197,7 @@ export function createLive({ root, entries }) {
       ctx.beginPath();
       for (const [i, s] of scope.entries()) {
         const x = w - ((now - s.t) / SCOPE_MS) * w;
-        const v = gcAxis(s[src][key]);
+        const v = axis(s, s[src][key]);
         if (i === 0) ctx.moveTo(x, y(v)); else ctx.lineTo(x, y(v));
       }
       ctx.stroke();
@@ -207,8 +210,9 @@ export function createLive({ root, entries }) {
     reports = reports.filter((t) => now - t < 1000);
     for (const k of ['l', 'r']) {
       const v = views[k];
-      const p = gc(latest.game, k);
-      const q = gc(latest.pre, k);
+      const p = gc(latest, latest.game, k);
+      const q = gc(latest, latest.pre, k);
+      v.pre.style.display = latest.gc ? 'none' : '';
       v.dot.setAttribute('cx', p.x); v.dot.setAttribute('cy', p.y);
       v.pre.setAttribute('cx', q.x); v.pre.setAttribute('cy', q.y);
       const tr = stick[k].trail.filter((t) => now - t.t <= TRAIL_MS);
@@ -224,12 +228,15 @@ export function createLive({ root, entries }) {
       const [mx, my] = meleeUnits(p.x, p.y);
       root.querySelector(`#raw${k.toUpperCase()}`).textContent = fmtRaw(p.x, p.y);
       root.querySelector(`#mel${k.toUpperCase()}`).textContent = `(${fmtMelee(mx)}, ${fmtMelee(my)})`;
-      root.querySelector(`#pre${k.toUpperCase()}`).textContent = fmtRaw(q.x, q.y);
+      root.querySelector(`#pre${k.toUpperCase()}`).textContent = latest.gc ? '  not sent' : fmtRaw(q.x, q.y);
     }
 
     const lit = new Set();
     const physical = [];
-    for (const e of entries()) {
+    if (latest.gc) {
+      for (const b of latest.buttons) { lit.add(b); physical.push(BUTTON_TEXT[b] || b); }
+    }
+    for (const e of latest.gc ? [] : entries()) {
       if (!latest.presses.has(e.code)) continue;
       const out = codeName(GC_CODES, e.gcCur);
       if (out) lit.add(out);
@@ -238,8 +245,8 @@ export function createLive({ root, entries }) {
     for (const [b, s] of btnEls) s.classList.toggle('on', lit.has(b));
     root.querySelector('#livePressed').textContent = physical.length ? physical.join('  ') : 'nothing pressed';
 
-    for (const [side, val, dig] of [['L', latest.lt, lit.has('L') || latest.presses.has(INPUT.L)], ['R', latest.rt, lit.has('R') || latest.presses.has(INPUT.R)]]) {
-      const v = gcTrigger(val, dig);
+    for (const [side, val, dig] of [['L', latest.lt, lit.has('L') || latest.presses?.has(INPUT.L)], ['R', latest.rt, lit.has('R') || latest.presses?.has(INPUT.R)]]) {
+      const v = latest.gc ? val : gcTrigger(val, dig);
       root.querySelector(`#trig${side}`).style.width = `${(v / 255) * 100}%`;
       root.querySelector(`#trig${side}Val`).textContent = pad(v, 3);
       root.querySelector(`#trig${side}Dig`).classList.toggle('on', dig);
@@ -260,6 +267,7 @@ export function createLive({ root, entries }) {
   drawGates();
   return {
     push,
+    setGate(kind) { gate = GATES[kind] ?? GATES.gcu; drawGates(); },
     start() { if (!frame) frame = requestAnimationFrame(loop); },
     stop() { cancelAnimationFrame(frame); frame = 0; },
     reset() {

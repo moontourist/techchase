@@ -1,19 +1,43 @@
 # [tc] techchase
 
-![[tc] techchase: tournament firmware for the GC Ultimate](assets/logo.png)
+![[tc] techchase](assets/logo.png)
 
-The all-in-one controller utility for PhobGCC and the GC Ultimate: calibrate them and cut their
-input lag in one place, so aftermarket controllers get the same lag reduction and are ready for
-tournaments. Today it's tournament firmware and a setup app for the Hand Held Legend GC Ultimate;
-Phob support is next.
+Calibrate your PhobGCC without Dolphin or a config ROM. Plug the Phob into a GameCube adapter, open
+the techchase desktop app, and it walks you through the Phob's own calibration one step at a time:
+it shows the target the Phob is asking for, where your stick lands in Melee coordinates, and which
+button to tap to fix a notch. Then it measures your snapback and tells you exactly which buttons
+change it.
 
-> **Work in progress.** The firmware runs on a GC Ultimate R4K and passes its tests on hardware.
-> Phob support, the Switch 2 timing and the Rust desktop app are next (see Roadmap). Not affiliated
-> with Hand Held Legend or PhobGCC.
+techchase is the all-in-one controller utility for PhobGCC and the GC Ultimate: one place to
+calibrate them and cut their input lag, so aftermarket controllers are ready for tournaments. It
+also has tournament firmware and a setup app for the Hand Held Legend GC Ultimate.
 
-![The techchase live view: both sticks with their measured notches, Melee coordinates, triggers, buttons and a snapback oscilloscope](assets/screenshot.png)
+> **Work in progress.** The Phob guide is new: it's tested against the Phob's own source and a
+> recorded run, and is being tried on real Phobs now. Not affiliated with Hand Held Legend or
+> PhobGCC.
 
-## What it does
+![The Phob guide fine-tuning the up-right notch: where the stick lands in Melee coordinates, the target, and the button to tap](assets/phob-calibration.png)
+
+## Phob
+
+Everything here reads the Phob through a GameCube adapter at 1000 reports a second, the way Dolphin
+does. A Phob changes its settings with button combos, so the app watches what the Phob shows on its
+sticks and tells you what to press next.
+
+- **Guided calibration**, main stick and c-stick. One instruction at a time: turn off safe mode,
+  start, measure each point, then fine-tune each notch. The app follows along on its own and joins
+  a calibration already under way.
+- **Notch fine-tuning in Melee coordinates.** Each notch shows where it lands (0.7000, 0.7000 is a
+  perfect diagonal) and says "Tap X" or "Tap Y" until it's on target.
+- **Snapback tuner.** Flick the stick and let go: the app measures how far it swings past center in
+  each direction and marks any swing past Melee's deadzone (0.2875). It reads your settings back
+  (L + Start) and says which combo to press, then measures again.
+- **Live view and notch check.** Both sticks as the game reads them, raw and in Melee coordinates,
+  with all eight notches measured.
+
+![The snapback tuner: swings past the deadzone from the right, the Phob's settings read back, and the combo to press](assets/phob-snapback.png)
+
+## GC Ultimate
 
 - **Late-latch.** The controller learns when the PC or console reads it, then reads its buttons
   and sticks just before that moment, not up to a whole poll early. Measured on the controller:
@@ -24,6 +48,9 @@ Phob support is next.
 - **Live view.** Your controller as the game sees it, like GTS's controller test but with no
   Dolphin: both sticks with raw and Melee coordinates, triggers, buttons, a notch check that
   measures all eight directions, and a snapback oscilloscope with Melee's deadzone marked.
+- **Stick calibration and snapback.** Guided notch calibration, a reset to factory, and the snapback
+  tuner, which shows the swing before and after the filter and sets the filter (Auto, low-pass,
+  off) in one click.
 - **Remapping.** A picture of your controller: click a button, pick its job, labeled with Smash
   actions (Attack, Special, Jump, Grab, Shield) or GameCube names. Named profiles, a live latency
   view with a one-click A/B test, USB mode switching and settings backup.
@@ -31,12 +58,25 @@ Phob support is next.
   the port on "GameCube Adapter for Wii U" means Dolphin does no mapping, so remaps reach the game
   as set. A Standard Controller port with the wrong button numbers can be fixed in one click (the
   old settings are backed up first).
-- **Same settings as HHL's.** No settings layout changed, so HHL's web app still does calibration,
-  RGB and snapback, and going back to official firmware keeps your setup.
+- **Same settings as HHL's.** No settings layout changed, so HHL's web app still works, and going
+  back to official firmware keeps your setup.
+
+![The techchase live view: both sticks with their measured notches, Melee coordinates, triggers, buttons and a snapback oscilloscope](assets/screenshot.png)
 
 ## Install
 
-The firmware:
+The desktop app (Windows) runs the Phob tools and everything for the GC Ultimate. Until releases
+are set up, build it with Rust:
+
+```sh
+cd rust
+cargo build --release -p techchase-app   # writes rust/target/release/techchase.exe
+```
+
+The adapter needs the same driver setup Dolphin uses (for Nintendo's adapter, WinUSB through
+Zadig). Close Dolphin while techchase has the adapter open.
+
+The GC Ultimate firmware:
 
 1. Unplug the controller. Hold **ZL + Start** and plug it in: a drive appears.
 2. Drag `gcu_r4k.uf2` onto it. The controller restarts on its own. Until releases are set up, build
@@ -44,14 +84,14 @@ The firmware:
 
 To go back, do the same with the official `gcu_r4k.uf2` from HHL's web app. Your settings stay.
 
-The app needs Python 3 and Chrome or Edge:
+The GC Ultimate also works from a browser, with Python 3 and Chrome or Edge:
 
 ```sh
 python tools/app/serve.py          # opens the app; Connect, then pick the controller
 python tools/app/serve.py --demo   # no controller needed
 ```
 
-## Controls
+## GC Ultimate controls
 
 Quick Remap, on the controller:
 
@@ -69,7 +109,8 @@ In the app, picking a button's own job puts it back to default. To swap two butt
 
 C on the Pico SDK for the firmware, like the HOJA firmware it's built on. The RP2040's speed isn't
 what makes the delay: when the input is read is, and that's scheduling. The app is plain HTML, CSS
-and JavaScript over WebUSB, with no build step. The tools are Python.
+and JavaScript with no build step; the desktop app wraps it in Tauri and adds the GameCube adapter
+from Rust. The tools are Python.
 
 | Path | What it is |
 |---|---|
@@ -80,18 +121,22 @@ and JavaScript over WebUSB, with no build step. The tools are Python.
 | `tools/app/live.js` | The live view: sticks, triggers, buttons, notch check, oscilloscope |
 | `tools/app/calibration.js`, `calib-ui.js` | Guided stick calibration: the analog settings layout, notch capture, and the wizard |
 | `tools/app/melee.js` | GameCube and Melee stick math, checked against GTS readings |
+| `tools/app/adapter-source.js` | GameCube adapter reports into the live view, with Dolphin's origin |
+| `tools/app/phob-track.js`, `phob-calib.js` | The Phob guide: follows the Phob's calibration from what it shows, and says what to do next |
+| `tools/app/snapback.js`, `snapback-ui.js` | The snapback tuner: swing measurement, advice for each controller, and the Phob's settings display |
 | `tools/gcu.py` | Command line: info, stats, A/B test, map, remap, reset, mode, backup |
 | `tools/dolphin_setup.py` | The Dolphin check, for the app and on its own: which port reads the controller, and fixing a mapping |
 | `tools/button_check.py` | Press each button: what Windows receives, and what a Dolphin profile reads it as |
 | `tools/slippi_poll_ab.py` | Polls like Slippi Dolphin at 1 kHz and A/B tests the late-latch |
-| `rust/techchase-core` | The protocol, live reports, Melee math, stick calibration, layouts and profiles, in Rust with no USB: the core of the coming desktop app |
+| `rust/techchase-core` | The protocol, live reports, Melee math, stick calibration, layouts and profiles, in Rust with no USB |
 | `rust/techchase-usb` | The USB side: the GC Ultimate's config interface, GameCube adapters with RAW_IO, and hot-plug |
+| `rust/techchase-app` | The desktop app (Tauri): the app above plus the GameCube adapter, streamed at 1 kHz |
 | `rust/techchase-cli` | `tc`: reads a GameCube adapter (a Phob on a Lossless) at 1 kHz, the GC Ultimate's info, stats, map, live stream and protocol check, and watches devices come and go |
 | `tests/sim_latch.c` | Runs the real late-latch code on a PC against simulated polls, including slow reports that must not leave it stuck off |
 | `tests/slippi_dolphin_poll.py` | Polls Slippi mode exactly as Slippi Dolphin does, and fails on anything Dolphin would see as a drop |
 | `tests/dolphin_setup_test.py` | The Dolphin check and fix, on a throwaway copy of Dolphin's settings |
-| `tests/app/` | Protocol test on a real controller, Melee math test, and a UI test in headless Chrome |
-| `assets/` | The README banner (`render.mjs`) and screenshot |
+| `tests/app/` | Protocol test on a real controller, Melee math, Phob guide and snapback tests, and UI tests in headless Chrome |
+| `assets/` | The README banner (`render.mjs`) and screenshots |
 | `PLAN.md` | The plan, phase by phase, with the measurements |
 
 ## Develop
@@ -113,6 +158,9 @@ python tests/dolphin_setup_test.py                 # Dolphin check and fix, on a
 node tests/app/calibration_test.mjs                # stick calibration math and settings layout
 node tests/app/melee_test.mjs                      # Melee coordinates against GTS readings
 node tests/app/transport_test.mjs                  # settings blocks read whole when packets arrive in bursts
+node tests/app/phob_track_test.mjs                 # following a Phob's calibration from what it shows
+node tests/app/phob_ui_test.mjs                    # the Phob guide and snapback tuner in the desktop app, with a fake adapter
+node tests/app/snapback_test.mjs                   # snapback swings, advice, and reading the Phob's settings display
 cd tests/app && npm install && node protocol_test.mjs   # needs the controller; restores your layout
 node tests/app/live_check.mjs                      # live report from the controller, 2 s
 .venv/bin/python tests/slippi_dolphin_poll.py      # controller in Slippi mode, Dolphin closed
@@ -139,6 +187,9 @@ Done:
 - [x] **Quick Remap** on the controller, and one remap for every mode.
 - [x] **The app**: live view, controls, profiles, latency and device screens, in Nord.
 - [x] **Command-line tools** and a Slippi-style A/B poller.
+- [x] **Desktop app** (Rust and Tauri) that reads a GameCube adapter at 1 kHz.
+- [x] **Phob calibration guide** and **snapback tuner**, for Phobs on any GameCube adapter.
+- [x] **Guided calibration and snapback** for the GC Ultimate inside the live view.
 
 Next:
 
@@ -146,11 +197,9 @@ Next:
   report cadences.
 - [ ] **PC**: OpenSmash's adapter reader and Slippi Dolphin at a true 1 kHz.
 - [ ] **Phob parity**: measure against a PhobGCC end to end, stick filter delay, notch calibration.
-- [ ] **Phob support**: read a PhobGCC through a GameCube adapter into the live view, guided
-  calibration without the config ROM in Dolphin, then its input lag.
-- [ ] **Rust**: one core for the protocol and Melee math, a Tauri desktop app, a WebAssembly build
-  for phones, with CI, lints and releases.
-- [ ] **Guided calibration** for the GC Ultimate inside the live view.
+- [ ] **Phob, next**: waveshaping, smoothing and trigger settings decoded the same way, a check of
+  the result against GTS, then the Phob's input lag.
+- [ ] **Rust**: a WebAssembly build for phones, with CI and releases.
 - [ ] **LED colors** for the GC Ultimate, with presets and a low-key venue setting.
 - [ ] **Bluetooth**, then a tournament lock and venue guide.
 

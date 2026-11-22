@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod adapter;
 mod dolphin;
 mod usb;
 
@@ -9,6 +10,7 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     let result = tauri::Builder::default()
         .manage(usb::Usb::default())
+        .manage(adapter::AdapterStream::default())
         .setup(|app| {
             usb::start(app.handle())?;
             Ok(())
@@ -18,6 +20,8 @@ fn main() -> ExitCode {
             usb::usb_open,
             usb::usb_send,
             usb::usb_close,
+            adapter::adapter_open,
+            adapter::adapter_close,
             dolphin::dolphin_check,
             dolphin::dolphin_fix
         ])

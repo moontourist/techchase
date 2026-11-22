@@ -2,7 +2,7 @@ import { ID_READ_CONFIG_BLOCK } from './gcu-protocol.js';
 import { NOTCHES } from './melee.js';
 import {
   ANALOG_CMD, CENTER_STILL_COUNTS, CFG_BLOCK_ANALOG, StillDetector, angleOff, checkCapture, notchSlots, nudge,
-  factoryDefaults, parseAnalog, readSlots, tuningLooksBroken, withNewCenters, writeSlots,
+  factoryDefaults, parseAnalog, readSlots, readTuning, tuningLooksBroken, withNewCenters, writeSlots, writeTuning,
 } from './calibration.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -302,6 +302,19 @@ export function createCalibration({ root, getDev, onChange, toast }) {
     get pending() { return pending; },
     get step() { return step; },
     async discard() { await restoreBackup(); },
+    async tuning(s) {
+      return readTuning(await getDev().readBlock(ID_READ_CONFIG_BLOCK, CFG_BLOCK_ANALOG), s);
+    },
+    async setTuning(s, patch) {
+      if (step !== 'idle') throw new Error('finish the stick calibration first');
+      const dev = getDev();
+      const before = await dev.readBlock(ID_READ_CONFIG_BLOCK, CFG_BLOCK_ANALOG);
+      if (!backup) backup = before;
+      current = writeTuning(before, s, patch);
+      await dev.writeBlock(CFG_BLOCK_ANALOG, current);
+      setPending(true);
+      return readTuning(current, s);
+    },
     saved() { backup = null; setPending(false); },
     detach() {
       run++;

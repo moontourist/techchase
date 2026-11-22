@@ -1,6 +1,6 @@
 import {
-  ANALOG_BLOCK_SIZE, StillDetector, angleOff, checkCapture, notchSlots, nudge, parseAnalog, readSlots, withNewCenters,
-  writeSlots,
+  ANALOG_BLOCK_SIZE, FACTORY, StillDetector, angleOff, checkCapture, factoryDefaults, notchSlots, nudge, parseAnalog,
+  readSlots, readTuning, tuningLooksBroken, withNewCenters, writeSlots,
 } from '../../tools/app/calibration.js';
 
 let failures = 0;
@@ -76,6 +76,25 @@ const w = new StillDetector();
 let wrap = null;
 for (let t = 0; t <= 300 && !wrap; t += 10) wrap = w.feed({ angle: t % 20 ? 359.8 : 0.2, distance: 1500 }, t);
 check(wrap && angleOff(wrap.angle, 0) < 0.3, 'a hold across 0 degrees averages to 0, not 180');
+
+{
+  const fresh = block();
+  new DataView(fresh.buffer).setUint16(2, (1990 << 1) | 1, true);
+  const out = factoryDefaults(block(), fresh);
+  const a = parseAnalog(out);
+  check(out.length === ANALOG_BLOCK_SIZE && a.centers.lx === 1990 && (out[2] & 1) === 0, 'factory reset takes the fresh centers and clears the invert bits');
+  check(!a.calibrationSet, 'factory reset marks the sticks uncalibrated');
+  const slotsOk = (s) => s.filter((x) => x.enabled).length === 8 && s[3].inAngle === 135 && s[3].inDistance === FACTORY.inDistance && s[3].outDistance === 2048;
+  check(slotsOk(a.l) && slotsOk(a.r), 'factory reset puts 8 notches at 45 degree steps on both sticks');
+  const t = readTuning(out, 'r');
+  check(t.deadzone === 144 && t.deadzoneOuter === 72 && t.snapbackType === 1 && t.snapbackIntensity === 600 && t.exp === 51 && !t.springTuned,
+    'factory reset sets the shipped deadzones, snapback and curve');
+  check(!tuningLooksBroken(out), 'factory settings do not look damaged');
+  const broken = new Uint8Array(out);
+  const v = new DataView(broken.buffer);
+  [125429, 125618, 124742, 859039535].forEach((n, i) => v.setInt32(682 + i * 4, n, true));
+  check(tuningLooksBroken(broken), 'the damage seen on the controller (spring numbers over the deadzones) is spotted');
+}
 
 console.log(failures ? `${failures} FAILED` : 'all passed');
 process.exit(failures ? 1 : 0);

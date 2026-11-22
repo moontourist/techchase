@@ -9,6 +9,7 @@ mod adapter_cmd;
 mod check;
 mod gcu_cmd;
 mod live;
+mod sticks;
 mod watch;
 
 use std::io::Write as _;
@@ -16,7 +17,7 @@ use std::process::ExitCode;
 
 type Fallible<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
-const USAGE: [&str; 13] = [
+const USAGE: [&str; 16] = [
     "usage:",
     "  tc info                 the controller, its firmware and techchase settings",
     "  tc stats [--reset]      input age at hand-off (late-latch)",
@@ -27,6 +28,9 @@ const USAGE: [&str; 13] = [
     "  tc adapter [--seconds N] [--queue K] [--port 1-4]",
     "      Reads a GameCube adapter (Lossless or Nintendo's) the way Dolphin does, with RAW_IO and K",
     "      reads in flight, shows the port live and ends with the poll rate. Close Dolphin first.",
+    "  tc sticks [--backup FILE | --restore FILE | --reset] [--save]",
+    "      Shows the stick settings, saves them to a file, puts a file back, or resets both sticks",
+    "      to the firmware's defaults (centers measured again: let go first). --save keeps it.",
     "  tc watch [--seconds N]",
     "      Lists the GC Ultimates and adapters plugged in, then each one plugged in or out, and opens",
     "      each new one to show it can be used.",
@@ -54,6 +58,7 @@ fn main() -> ExitCode {
         Some((cmd, rest)) if cmd == "check" => check::run(rest),
         Some((cmd, rest)) if cmd == "live" => live::run(rest),
         Some((cmd, rest)) if cmd == "watch" => watch::run(rest),
+        Some((cmd, rest)) if cmd == "sticks" => sticks::run(rest),
         _ => Err(usage().into()),
     };
     match result {

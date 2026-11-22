@@ -12,3 +12,4 @@ __pycache__/
 *.exe
 
 /rust/target/
+rust/techchase-app/gen/

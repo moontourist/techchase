@@ -25,18 +25,17 @@
   --changed: #d08770;
   --glow: rgba(143, 188, 187, .7);
   --deadzone-fill: rgba(163, 190, 140, .07);
-  --pad-top: #434c5e;
-  --pad-bottom: #3b4252;
   --pad-line: #81a1c1;
-  --pad-well-line: #5e81ac;
-  --pad-dpad-mid: #3b4252;
-  --pad-logo: #81a1c1;
-  --pad-btn: #4c566a;
-  --pad-btn-line: #81a1c1;
-  --pad-a: #6e8a5a;
-  --pad-b: #8f4a52;
-  --pad-c: #a8925f;
-  --pad-stick: #4c566a;
+  --gc-a: #6fb594;
+  --gc-b: #c8636c;
+  --gc-xy: #d8dee9;
+  --gc-z: #8f80c8;
+  --gc-c: #e5c07b;
+  --gc-gray: #a7b0c0;
+  --gc-stick: #c3cad6;
+  --gc-ink: #2e3440;
+  --lit-edge: #88c0d0;
+  --lit-glow: rgba(136, 192, 208, .75);
   --shadow-md: 0 8px 30px rgba(0, 0, 0, .45);
   --mono: "JetBrains Mono", "JetBrainsMono NFM", ui-monospace, Menlo, Consolas, monospace;
   color-scheme: dark;
@@ -113,27 +112,32 @@ main { max-width: 1180px; margin: 0 auto; padding: 1.6rem 1.4rem 4rem; }
 @media (max-width: 900px) { .controls { grid-template-columns: 1fr; } }
 .pad-wrap { padding: 1rem; border-color: var(--accent-primary); }
 #pad { width: 100%; height: auto; display: block; user-select: none; }
-#pad .body-top { stop-color: var(--pad-top); }
-#pad .body-bottom { stop-color: var(--pad-bottom); }
-#pad .body { stroke: var(--pad-line); stroke-width: 2; stroke-dasharray: 7 5; }
-#pad .seam { fill: none; stroke: var(--pad-well-line); stroke-width: 1.5; stroke-dasharray: 6 5; }
-#pad .well-ring { fill: none; stroke: var(--pad-well-line); stroke-width: 1.5; stroke-dasharray: 6 5; pointer-events: none; }
-#pad .well { fill: var(--bg-sunken) !important; stroke: var(--pad-well-line); stroke-dasharray: 6 5; }
-#pad .gate { fill: none !important; }
-#pad .dpad-mid { fill: var(--pad-dpad-mid); }
-#pad .logo { fill: var(--pad-logo); font-size: 11px; letter-spacing: .25em; text-anchor: middle; font-weight: 600; }
-#pad text { text-anchor: middle; font-weight: 700; font-size: 14px; fill: var(--text-primary); pointer-events: none; font-family: var(--mono); }
-#pad .btn > :not(text):not(.well) { fill: var(--pad-btn); stroke: var(--pad-btn-line); stroke-width: 1.5; transition: fill .12s, stroke .12s; }
-#pad .btn.face.a > :not(text) { fill: var(--pad-a); stroke: var(--color-success); }
-#pad .btn.face.b > :not(text) { fill: var(--pad-b); stroke: var(--color-error); }
-#pad .btn.c > circle:not(.well) { fill: var(--pad-c); stroke: var(--color-warning); }
-#pad .btn.c text { fill: var(--bg-primary); }
-#pad .btn.stick > circle:not(.well) { fill: var(--pad-stick); }
+#pad .outline { color: var(--pad-line); pointer-events: none; }
+#pad .dpad-mid { fill: var(--gc-gray); }
+#pad text { text-anchor: middle; font-weight: 600; font-size: 12px; fill: var(--gc-ink); pointer-events: none; font-family: var(--mono); }
+#pad .glyph { fill: var(--gc-ink); pointer-events: none; }
+#pad .glyph.line { fill: none; stroke: var(--text-primary); stroke-width: 1.8; stroke-linecap: round; }
+#pad .extra .glyph:not(.line) { fill: var(--text-primary); }
+#pad .shoulder text, #pad .extra text { fill: var(--text-primary); }
+#pad .btn > :not(text):not(.glyph) { fill: var(--gc-gray); stroke: transparent; stroke-width: 1.5; transition: fill .08s, stroke .12s, filter .08s; }
+#pad .btn.face.a > :not(text):not(.glyph) { fill: var(--gc-a); }
+#pad .btn.face.b > :not(text):not(.glyph) { fill: var(--gc-b); }
+#pad .btn.face.x > :not(text):not(.glyph), #pad .btn.face.y > :not(text):not(.glyph) { fill: var(--gc-xy); }
+#pad .btn.z > :not(text):not(.glyph) { fill: var(--gc-z); }
+#pad .btn.c > :not(text):not(.glyph) { fill: var(--gc-c); }
+#pad .btn.stick:not(.c) > :not(text):not(.glyph) { fill: var(--gc-stick); }
+#pad .btn.extra > :not(text):not(.glyph) { fill: var(--bg-raised); stroke: var(--pad-line); }
 #pad .btn.editable { cursor: pointer; }
-#pad .btn.editable:hover > :not(text):not(.well) { stroke: var(--accent-tertiary); stroke-width: 3; }
-#pad .btn.fixed { opacity: .4; }
-#pad .btn.changed > :not(text):not(.well) { stroke: var(--changed); stroke-width: 3.5; }
-#pad .btn.selected > :not(text):not(.well) { stroke: var(--accent-tertiary); stroke-width: 4.5; filter: drop-shadow(0 0 6px var(--glow)); }
+#pad .btn.editable:hover > :not(text):not(.glyph) { stroke: var(--accent-tertiary); stroke-width: 3; }
+#pad .btn.fixed { opacity: .45; }
+#pad .btn.changed > :not(text):not(.glyph) { stroke: var(--changed); stroke-width: 3.5; }
+#pad .btn.unsaved > :not(text):not(.glyph) { stroke-dasharray: 5 3; }
+#pad .btn.selected > :not(text):not(.glyph) { stroke: var(--accent-tertiary); stroke-width: 4.5; filter: drop-shadow(0 0 6px var(--glow)); }
+#pad .btn.lit { opacity: 1; }
+#pad .btn.lit > :not(text):not(.glyph) { stroke: var(--lit-edge); stroke-width: 2.5; filter: brightness(1.18) drop-shadow(0 0 5px var(--lit-glow)); }
+#pad .btn.extra.lit > :not(text):not(.glyph) { fill: var(--accent-primary); }
+#pad .btn.extra.lit .glyph:not(.line), #pad .btn.extra.lit text { fill: var(--bg-primary); }
+#pad .btn.extra.lit .glyph.line { stroke: var(--bg-primary); }
 #pad .job { font-size: 12px; font-weight: 700; fill: var(--changed); paint-order: stroke; stroke: var(--bg-primary); stroke-width: 3px; }
 .legend { font-size: .8rem; color: var(--text-muted); margin: .6rem 0 0; }
 .chip { display: inline-block; padding: 0 5px; font-size: .78rem; border: 1px solid var(--border-primary); }
@@ -153,7 +157,6 @@ main { max-width: 1180px; margin: 0 auto; padding: 1.6rem 1.4rem 4rem; }
 .rows .job { color: var(--text-subtle); }
 .rows .tag { font-size: .75rem; color: var(--changed); border: 1px solid var(--changed); padding: 0 5px; }
 .rows .tag.unsaved { border-style: dashed; }
-#pad .btn.unsaved > :not(text):not(.well) { stroke-dasharray: 5 3; }
 .savebar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: .6rem; padding: .45rem 1.2rem; background: var(--bg-raised); border-bottom: 1px solid var(--changed); }
 .savebar[hidden] { display: none; }
 .savebar span { margin-right: auto; color: var(--changed); }
@@ -279,7 +282,7 @@ svg.stick .gate.measured { stroke: var(--accent-primary); }
 .cstick svg.stick .gate.measured { stroke: var(--color-warning); }
 svg.stick .melee-circle { fill: none; stroke: var(--border-muted); stroke-width: 1.2; stroke-dasharray: 4 4; }
 svg.stick .deadzone { fill: var(--deadzone-fill); stroke: var(--color-success); stroke-width: 1; stroke-dasharray: 3 3; }
-svg.stick .trail { fill: none; stroke: var(--accent-secondary); stroke-width: 2; stroke-opacity: .45; stroke-linejoin: round; }
+svg.stick .trail polyline { fill: none; stroke: var(--accent-secondary); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
 svg.stick .pre { fill: none; stroke: var(--accent-tertiary); stroke-width: 1.8; }
 svg.stick .dot { fill: var(--accent-secondary); }
 svg.stick .notch-dots .ok { fill: var(--color-success); }

@@ -7,6 +7,18 @@ const SLOT_SIZE: usize = 21;
 const CENTERS_AT: usize = 2;
 const LEFT_SLOTS_AT: usize = 10;
 const RIGHT_SLOTS_AT: usize = LEFT_SLOTS_AT + SLOT_SIZE * SLOT_COUNT;
+const TUNING_AT: usize = RIGHT_SLOTS_AT + SLOT_SIZE * SLOT_COUNT;
+const SPRING_SIZE: usize = 74;
+const SPRINGS_AT: usize = TUNING_AT + 16;
+pub const DEFAULT_NOTCHES: usize = 8;
+pub const DEFAULT_IN_DISTANCE: f32 = 1400.0;
+pub const DEFAULT_OUT_DISTANCE: f32 = 2048.0;
+pub const DEFAULT_NOTCH_DEADZONE: f32 = 2.0;
+pub const DEFAULT_DEADZONE: u16 = 144;
+pub const DEFAULT_DEADZONE_OUTER: u16 = 72;
+pub const DEFAULT_SNAPBACK_TYPE: u8 = 1;
+pub const DEFAULT_SNAPBACK_INTENSITY: u16 = 600;
+pub const DEFAULT_EXP: u8 = 51;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cmd {
@@ -52,6 +64,17 @@ pub struct Centers {
     pub ly: u16,
     pub rx: u16,
     pub ry: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StickTuning {
+    pub deadzone: u16,
+    pub deadzone_outer: u16,
+    pub snapback_type: u8,
+    pub snapback_intensity: u16,
+    pub exp: u8,
+    pub spring_version: u8,
+    pub spring_tuned: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -206,6 +229,81 @@ pub fn parse_capture(reply: &[u8]) -> Option<Capture> {
     })
 }
 
+#[must_use]
+pub fn tuning(b: &[u8], side: Side) -> StickTuning {
+    let pick = |l: usize, r: usize| match side {
+        Side::Left => l,
+        Side::Right => r,
+    };
+    let spring = SPRINGS_AT + pick(0, SPRING_SIZE);
+    StickTuning {
+        deadzone: u16_at(b, TUNING_AT + pick(0, 2)),
+        snapback_type: b.get(TUNING_AT + pick(4, 5)).copied().unwrap_or(0),
+        deadzone_outer: u16_at(b, TUNING_AT + pick(6, 8)),
+        snapback_intensity: u16_at(b, TUNING_AT + pick(10, 12)),
+        exp: b.get(TUNING_AT + pick(14, 15)).copied().unwrap_or(0),
+        spring_version: b.get(spring).copied().unwrap_or(0),
+        spring_tuned: b.get(spring + 1).is_some_and(|f| f & 1 != 0),
+    }
+}
+
+#[must_use]
+pub fn default_slots() -> Vec<Slot> {
+    (0..SLOT_COUNT)
+        .map(|i| {
+            let on = i < DEFAULT_NOTCHES;
+            let angle = f32::from(u16::try_from(i).unwrap_or(0)) * 45.0;
+            if on {
+                Slot {
+                    in_angle: angle,
+                    out_angle: angle,
+                    deadzone: DEFAULT_NOTCH_DEADZONE,
+                    in_distance: DEFAULT_IN_DISTANCE,
+                    out_distance: DEFAULT_OUT_DISTANCE,
+                    enabled: true,
+                }
+            } else {
+                Slot {
+                    in_angle: 0.0,
+                    out_angle: 0.0,
+                    deadzone: 0.0,
+                    in_distance: 0.0,
+                    out_distance: 0.0,
+                    enabled: false,
+                }
+            }
+        })
+        .collect()
+}
+
+pub fn factory_defaults(b: &[u8], centers_from: &[u8]) -> Result<Vec<u8>, WriteError> {
+    let mut out = with_new_centers(b, centers_from).map_err(WriteError::Size)?;
+    for c in 0..4 {
+        let at = CENTERS_AT + c * 2;
+        let center = u16_at(&out, at) & !1;
+        put(&mut out, at, &center.to_le_bytes());
+    }
+    out = write_slots(&out, Side::Left, &default_slots())?;
+    out = write_slots(&out, Side::Right, &default_slots())?;
+    if let Some(set) = out.get_mut(1) {
+        *set = 0;
+    }
+    let d = |v: u16| v.to_le_bytes();
+    put(&mut out, TUNING_AT, &d(DEFAULT_DEADZONE));
+    put(&mut out, TUNING_AT + 2, &d(DEFAULT_DEADZONE));
+    put(&mut out, TUNING_AT + 4, &[
+        DEFAULT_SNAPBACK_TYPE,
+        DEFAULT_SNAPBACK_TYPE,
+    ]);
+    put(&mut out, TUNING_AT + 6, &d(DEFAULT_DEADZONE_OUTER));
+    put(&mut out, TUNING_AT + 8, &d(DEFAULT_DEADZONE_OUTER));
+    put(&mut out, TUNING_AT + 10, &d(DEFAULT_SNAPBACK_INTENSITY));
+    put(&mut out, TUNING_AT + 12, &d(DEFAULT_SNAPBACK_INTENSITY));
+    put(&mut out, TUNING_AT + 14, &[DEFAULT_EXP, DEFAULT_EXP]);
+    put(&mut out, SPRINGS_AT, &[0u8; SPRING_SIZE * 2]);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,5 +395,44 @@ mod tests {
         let m = with_new_centers(&b, &fresh).unwrap();
         assert_eq!(parse(&m).unwrap().centers.lx, 2040);
         assert_eq!((m[20], m[1000]), (b[20], 0xab));
+    }
+
+    #[test]
+    fn factory_defaults_match_the_firmware() {
+        let mut old = block();
+        old[CENTERS_AT] = 0x11;
+        let mut fresh = block();
+        fresh[CENTERS_AT..CENTERS_AT + 2].copy_from_slice(&(2000u16 << 1 | 1).to_le_bytes());
+        let out = factory_defaults(&old, &fresh).unwrap();
+        let a = parse(&out).unwrap();
+        assert_eq!(a.centers.lx, 2000);
+        assert_eq!(out[CENTERS_AT] & 1, 0);
+        assert!(!a.calibration_set);
+        for side in [&a.left, &a.right] {
+            assert_eq!(side.iter().filter(|s| s.enabled).count(), DEFAULT_NOTCHES);
+            assert_eq!(side[3].in_angle, 135.0);
+            assert_eq!(side[3].in_distance, DEFAULT_IN_DISTANCE);
+            assert_eq!(side[3].out_distance, DEFAULT_OUT_DISTANCE);
+        }
+        for side in [Side::Left, Side::Right] {
+            let t = tuning(&out, side);
+            assert_eq!(
+                (t.deadzone, t.deadzone_outer),
+                (DEFAULT_DEADZONE, DEFAULT_DEADZONE_OUTER)
+            );
+            assert_eq!(
+                (t.snapback_type, t.snapback_intensity),
+                (DEFAULT_SNAPBACK_TYPE, DEFAULT_SNAPBACK_INTENSITY)
+            );
+            assert_eq!(
+                (t.exp, t.spring_version, t.spring_tuned),
+                (DEFAULT_EXP, 0, false)
+            );
+        }
+        assert_eq!(out.len(), BLOCK_SIZE);
+        assert_eq!(
+            out[SPRINGS_AT + 2 * SPRING_SIZE..],
+            old[SPRINGS_AT + 2 * SPRING_SIZE..]
+        );
     }
 }

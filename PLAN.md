@@ -720,6 +720,13 @@ correct and connected at a tournament, and 14d and 14e are the calibration half 
   are and call the Rust core instead of WebUSB.
   * Installers for Windows and Mac.
   * One app finds both the GC Ultimate and a Phob on an adapter.
+  * **Started 2026-11-21:** `rust/techchase-app` opens `tools/app` in its own window. A small shim
+    (`tauri-usb.js`) gives the screens the WebUSB calls they use, backed by `techchase-usb`; the
+    Rust side streams each packet to the window and sends hot-plug events, so the screens are
+    unchanged. The Dolphin check moved to `techchase-core::dolphin` (its Python tests carried
+    over) and the Dolphin tab calls it, so the app needs no local server.
+  * Left: try it on the controller, the Phob on an adapter, the installers, and building with the
+    MSVC toolchain (the GNU linker warns that it couldn't merge two Windows manifests).
 * [ ] **14k Web build.** The core compiled to WebAssembly for the GitHub Pages version, which stays
   for setting up a GC Ultimate from a phone at a venue.
 * [ ] **14l Retire the copies.** Delete the JavaScript protocol module and the Python tools once the
@@ -802,6 +809,50 @@ as up-right (76, 73) = (0.7125, 0.6875)).
   report.
 * [ ] **15g Polish.** A first-run walkthrough, a phone layout for venue setup, keyboard use, and
   contrast checks (CONTRIBUTING.md).
+* [ ] **15h Controls picture from the owner's outline.** Asked for 2026-11-21: the Controls tab draws
+  the controller from the owner's transparent line drawing (500 x 391, the stray page number removed)
+  in GameCube colors, and buttons light up as they are pressed, the way GTS's controller test does.
+  * The drawing is redrawn as vectors (`tools/app/controller-outline.svg`), so it stays sharp at
+    any size: each dash of the 500 px original is found, the dashes are linked into smooth curves
+    and drawn with the same dash pattern. The D-pad cross and the solid A, B, X and Y rings come
+    from the fitted shapes. It takes the theme's line color through `currentColor`.
+  * Colored shapes sit under it, fitted to the drawing: A, B and the sticks by circle fits, X and Y
+    traced from their outlines, the d-pad, Start, and L, R and Z from the shoulder curves measured
+    column by column. GameCube colors: A green, B red, X and Y light grey, Z purple, C-stick
+    yellow.
+  * The drawing has no place for ZL, Minus, Home, Capture or Power, so they sit in a row under it.
+    L also lights for the analog LT, R for RT.
+  * Lighting comes from the live report the app already streams (`presses`), at most once a frame.
+  * Built 2026-11-21 and checked in the demo (screenshots). Left: check it on the controller by
+    pressing every button.
+* [ ] **15i Owner's notes from the first desktop run (2026-11-21).**
+  * [ ] **Damaged sticks.** After recalibrating, the sticks went haywire. The analog block read
+    back with bytes 682 to 695 (both sticks' deadzones, outer deadzones, snapback types and
+    strengths) holding the firmware's default spring numbers (`_spring_default_a1[1..4]`, whose
+    own place is 704 on); the notches, centers and curve were sane. What wrote them there is not
+    found yet: the app only writes whole blocks and profiles stop before the springs. Saved as
+    `backups/sticks-after-recalibration-2026-11-21.bin`. The owner's sticks were put back from the
+    settings saved before the tourney flash (not saved to the controller yet).
+    Hardening while the cause is open: the settings reader refuses a block whose chunks arrive out
+    of order or that is not 1024 bytes, keeps packets that arrive before their reply is awaited
+    (with packets already queued, the old reader lost chunks: `tests/app/transport_test.mjs`), and
+    a block of the wrong size is never written. Left: find the writer.
+  * [x] **Reset sticks to factory.** A button under the live view, and `tc sticks --reset`: both
+    sticks get the firmware's shipped notches, deadzones (144, outer 72), snapback (Auto, 600) and
+    curve, with centers measured again. It works at once and stays unsaved until Save. The app
+    also says when the stick settings look damaged. `tc sticks` shows, backs up and restores them.
+  * [ ] **Calibrate needs two clicks.** Not reproduced yet. Lost chunks (above) would fail the
+    first try's settings read, so check it again on the controller with this build.
+  * [x] **Trails.** The trail kept the last 45 reports, about a third of a second at 125 a second.
+    It now keeps 0.6 s and fades out.
+  * [x] **Sharper picture** (see 15h) and **theme:** Nord-toned GameCube colors, the press glow in
+    the frost accent instead of white, the app's font weight, and the D-pad arrows and the Home,
+    Capture, Minus and Power icons drawn as shapes (the font has no such symbols).
+* [ ] **15j Snapback calibration.** Asked for 2026-11-21. Measure each stick's snapback (release
+  from the rim, the way the snapback oscilloscope does) and set the filter from what the Melee and
+  Smash community knows about it: the firmware already has the low-pass and Auto filters and a
+  per-stick spring model (`snapbackSpringCfg_s`, fitted per octant). The live report carries the
+  stick before and after the filter, so the app can show the result.
 
 ## Phase 16: GC Ultimate LED colors
 The GC Ultimate has 12 RGB LEDs in 6 groups: the left stick ring, A, B, X, Y, and the Power

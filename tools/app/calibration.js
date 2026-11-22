@@ -10,6 +10,10 @@ const CENTERS_END = 10;
 const NOTCH_COUNT = 8;
 const DEFAULT_DEADZONE = 2;
 const DEFAULT_OUT_DISTANCE = 2048;
+const TUNING_AT = SLOTS_AT.r + SLOT_SIZE * SLOT_COUNT;
+const SPRING_SIZE = 74;
+const SPRINGS_AT = TUNING_AT + 16;
+export const FACTORY = { inDistance: 1400, deadzone: 144, deadzoneOuter: 72, snapbackType: 1, snapbackIntensity: 600, exp: 51 };
 
 export const MIN_NOTCH_DISTANCE = 1000;
 export const MAX_NOTCH_ANGLE_OFF = 20;
@@ -145,4 +149,51 @@ export class StillDetector {
     const angle = (((Math.atan2(sy, sx) * 180) / Math.PI) + 360) % 360;
     return { angle, distance: ds.reduce((a, b) => a + b, 0) / ds.length };
   }
+}
+
+export function readTuning(bytes, side) {
+  const v = view(bytes);
+  const [a, b] = side === 'l' ? [0, 0] : [1, 2];
+  const spring = SPRINGS_AT + (side === 'l' ? 0 : SPRING_SIZE);
+  return {
+    deadzone: v.getUint16(TUNING_AT + b, true),
+    snapbackType: v.getUint8(TUNING_AT + 4 + a),
+    deadzoneOuter: v.getUint16(TUNING_AT + 6 + b, true),
+    snapbackIntensity: v.getUint16(TUNING_AT + 10 + b, true),
+    exp: v.getUint8(TUNING_AT + 14 + a),
+    springTuned: (v.getUint8(spring + 1) & 1) === 1 && v.getUint8(spring) === 1,
+  };
+}
+
+export function defaultSlots() {
+  return Array.from({ length: SLOT_COUNT }, (_, i) => (i < NOTCH_COUNT
+    ? { inAngle: i * 45, outAngle: i * 45, deadzone: DEFAULT_DEADZONE, inDistance: FACTORY.inDistance, outDistance: DEFAULT_OUT_DISTANCE, enabled: true }
+    : { inAngle: 0, outAngle: 0, deadzone: 0, inDistance: 0, outDistance: 0, enabled: false }));
+}
+
+export function factoryDefaults(bytes, fresh) {
+  let out = withNewCenters(bytes, fresh);
+  const v = view(out);
+  for (let at = CENTERS_AT; at < CENTERS_END; at += 2) v.setUint16(at, v.getUint16(at, true) & ~1, true);
+  out = writeSlots(writeSlots(out, 'l', defaultSlots()), 'r', defaultSlots());
+  const w = view(out);
+  w.setUint8(1, 0);
+  for (const b of [0, 2]) {
+    w.setUint16(TUNING_AT + b, FACTORY.deadzone, true);
+    w.setUint16(TUNING_AT + 6 + b, FACTORY.deadzoneOuter, true);
+    w.setUint16(TUNING_AT + 10 + b, FACTORY.snapbackIntensity, true);
+  }
+  for (const a of [0, 1]) {
+    w.setUint8(TUNING_AT + 4 + a, FACTORY.snapbackType);
+    w.setUint8(TUNING_AT + 14 + a, FACTORY.exp);
+  }
+  out.fill(0, SPRINGS_AT, SPRINGS_AT + 2 * SPRING_SIZE);
+  return out;
+}
+
+export function tuningLooksBroken(bytes) {
+  return ['l', 'r'].some((side) => {
+    const t = readTuning(bytes, side);
+    return t.deadzone > 2048 || t.deadzoneOuter > 2048 || t.snapbackType > 8 || t.snapbackIntensity > 10000;
+  });
 }

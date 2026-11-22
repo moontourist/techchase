@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod analog;
 pub mod calibration;
 pub mod codes;
+pub mod dolphin;
 pub mod gcu;
 pub mod layout;
 pub mod live;

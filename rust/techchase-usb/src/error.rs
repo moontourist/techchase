@@ -1,6 +1,6 @@
 use std::fmt;
 
-use techchase_core::analog::WrongSize;
+use techchase_core::analog::{WriteError, WrongSize};
 use techchase_core::gcu::ProtocolError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +43,7 @@ pub enum UsbError {
     Refused(u8),
     Protocol(ProtocolError),
     Analog(WrongSize),
+    AnalogWrite(WriteError),
     Watch(nusb::Error),
 }
 
@@ -76,6 +77,7 @@ impl fmt::Display for UsbError {
             Self::Refused(input) => write!(f, "the controller refused remapping input {input}"),
             Self::Protocol(e) => e.fmt(f),
             Self::Analog(e) => e.fmt(f),
+            Self::AnalogWrite(e) => write!(f, "building the stick settings: {e:?}"),
             Self::Watch(e) => write!(f, "watching for USB devices: {e}"),
         }
     }

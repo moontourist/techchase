@@ -8,7 +8,8 @@ use nusb::{DeviceInfo, MaybeFuture};
 use techchase_core::analog::{self, Analog, Capture, Cmd};
 use techchase_core::codes::InputCode;
 use techchase_core::gcu::{
-    self, Chunk, Command, DeviceInfo as StaticInfo, Info, MapEntry, PACKET, Revert, Stats,
+    self, Chunk, Command, DeviceInfo as StaticInfo, Info, MapEntry, PACKET, ProtocolError, Revert,
+    Stats,
 };
 
 use crate::error::{Device, Result, UsbError};
@@ -23,14 +24,55 @@ const CHUNK_TIMEOUT: Duration = Duration::from_secs(1);
 const READS_IN_FLIGHT: usize = 4;
 const REVERT_TRIES: usize = 25;
 const REVERT_WAIT: Duration = Duration::from_millis(40);
+const CENTER_SETTLE: Duration = Duration::from_millis(200);
 
 #[derive(Debug)]
 pub struct Gcu {
     pub product: String,
     pub vendor_id: u16,
     pub product_id: u16,
-    out: nusb::Endpoint<Bulk, Out>,
-    inp: nusb::Endpoint<Bulk, In>,
+    out: GcuOut,
+    inp: GcuIn,
+}
+
+#[derive(Debug)]
+pub struct GcuOut(nusb::Endpoint<Bulk, Out>);
+
+#[derive(Debug)]
+pub struct GcuIn(nusb::Endpoint<Bulk, In>);
+
+impl GcuOut {
+    pub fn send(&mut self, packet: &[u8]) -> Result<()> {
+        let mut padded = [0u8; PACKET];
+        for (to, from) in padded.iter_mut().zip(packet) {
+            *to = *from;
+        }
+        let mut buf = self.0.allocate(PACKET);
+        buf.extend_from_slice(&padded);
+        self.0
+            .transfer_blocking(buf, WRITE_TIMEOUT)
+            .status
+            .map_err(|e| UsbError::Write(Device::Gcu, e))
+    }
+}
+
+impl GcuIn {
+    pub fn next(&mut self, timeout: Duration) -> Result<Option<Vec<u8>>> {
+        let Some(done) = self.0.wait_next_complete(timeout) else {
+            return Ok(None);
+        };
+        let status = done.status;
+        let data = done.buffer.get(..done.actual_len).map_or_else(Vec::new, <[u8]>::to_vec);
+        let mut buf = done.buffer;
+        buf.clear();
+        self.0.submit(buf);
+        status.map_err(|e| UsbError::Read(Device::Gcu, e))?;
+        Ok((!data.is_empty()).then_some(data))
+    }
+}
+
+impl Drop for GcuIn {
+    fn drop(&mut self) { self.0.cancel_all(); }
 }
 
 #[must_use]
@@ -103,19 +145,15 @@ impl Gcu {
             product: info.product_string().unwrap_or("controller").to_owned(),
             vendor_id: info.vendor_id(),
             product_id: info.product_id(),
-            out,
-            inp,
+            out: GcuOut(out),
+            inp: GcuIn(inp),
         })
     }
 
-    fn send(&mut self, packet: &[u8; PACKET]) -> Result<()> {
-        let mut buf = self.out.allocate(PACKET);
-        buf.extend_from_slice(packet);
-        self.out
-            .transfer_blocking(buf, WRITE_TIMEOUT)
-            .status
-            .map_err(|e| UsbError::Write(Device::Gcu, e))
-    }
+    #[must_use]
+    pub fn into_parts(self) -> (GcuOut, GcuIn) { (self.out, self.inp) }
+
+    fn send(&mut self, packet: &[u8; PACKET]) -> Result<()> { self.out.send(packet) }
 
     fn recv_until(
         &mut self,
@@ -123,16 +161,10 @@ impl Gcu {
         want: impl Fn(&[u8]) -> bool,
     ) -> Result<Option<Vec<u8>>> {
         while Instant::now() < until {
-            let Some(done) = self.inp.wait_next_complete(POLL) else {
+            let Some(data) = self.inp.next(POLL)? else {
                 continue;
             };
-            let status = done.status;
-            let data = done.buffer.get(..done.actual_len).map_or_else(Vec::new, <[u8]>::to_vec);
-            let mut buf = done.buffer;
-            buf.clear();
-            self.inp.submit(buf);
-            status.map_err(|e| UsbError::Read(Device::Gcu, e))?;
-            if !data.is_empty() && want(&data) {
+            if want(&data) {
                 return Ok(Some(data));
             }
         }
@@ -149,6 +181,7 @@ impl Gcu {
         self.send(&gcu::encode_block_read(read_id, block))?;
         let until = Instant::now() + BLOCK_TIMEOUT;
         let mut out = Vec::new();
+        let mut chunks = 0usize;
         loop {
             let want = |p: &[u8]| {
                 matches!(gcu::parse_block_chunk(p, read_id, block), Ok(Some(_)) | Err(_))
@@ -157,14 +190,32 @@ impl Gcu {
                 return Ok((!out.is_empty()).then_some(out));
             };
             match gcu::parse_block_chunk(&p, read_id, block)? {
-                Some(Chunk::Data(d)) => out.extend_from_slice(d),
-                Some(Chunk::End) => return Ok(Some(out)),
+                Some(Chunk::Data { part, bytes }) => {
+                    if usize::from(part) != chunks {
+                        return Err(ProtocolError::ChunkOrder { got: part, want: chunks }.into());
+                    }
+                    chunks += 1;
+                    out.extend_from_slice(bytes);
+                }
+                Some(Chunk::End) => {
+                    if let Some(want) = gcu::block_size(read_id, block)
+                        && out.len() != want
+                    {
+                        return Err(ProtocolError::BlockSize { block, len: out.len(), want }.into());
+                    }
+                    return Ok(Some(out));
+                }
                 None => {}
             }
         }
     }
 
     pub fn write_block(&mut self, block: u8, bytes: &[u8]) -> Result<()> {
+        if let Some(want) = gcu::block_size(gcu::ID_READ_CONFIG_BLOCK, block)
+            && bytes.len() != want
+        {
+            return Err(ProtocolError::BlockSize { block, len: bytes.len(), want }.into());
+        }
         for packet in gcu::encode_block_write(block, bytes)? {
             self.send(&packet)?;
         }
@@ -272,8 +323,19 @@ impl Gcu {
             cmd: cmd.code(),
         })
     }
-}
 
-impl Drop for Gcu {
-    fn drop(&mut self) { self.inp.cancel_all(); }
+    pub fn recentered_block(&mut self) -> Result<Vec<u8>> {
+        self.config_command(analog::CFG_BLOCK, Cmd::CalibrateStart.code())?;
+        thread::sleep(CENTER_SETTLE);
+        self.config_command(analog::CFG_BLOCK, Cmd::CalibrateStop.code())?;
+        self.analog_block()
+    }
+
+    pub fn reset_sticks(&mut self) -> Result<Vec<u8>> {
+        let before = self.analog_block()?;
+        let fresh = self.recentered_block()?;
+        let reset = analog::factory_defaults(&before, &fresh).map_err(UsbError::AnalogWrite)?;
+        self.write_analog(&reset)?;
+        Ok(reset)
+    }
 }

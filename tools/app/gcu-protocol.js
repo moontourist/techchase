@@ -3,6 +3,8 @@ export const ID_WRITE_CONFIG_BLOCK = 0x02;
 export const ID_READ_STATIC_BLOCK = 0x03;
 export const ID_CONFIG_COMMAND = 0x04;
 const BLOCK_CHUNK = 32;
+const BLOCK_SIZES = new Map([[2, 1024]]);
+const UNCLAIMED_MAX = 64;
 export const ID_INPUT_COMMAND = 0x05;
 export const ID_TECHCHASE = 0xC0;
 
@@ -85,6 +87,7 @@ export class GcuDevice {
   constructor(usbDevice) {
     this.dev = usbDevice;
     this.waiters = [];
+    this.unclaimed = [];
     this.reading = false;
     this.closed = false;
     this.queue = Promise.resolve();
@@ -163,6 +166,9 @@ export class GcuDevice {
         if (i >= 0) {
           const [w] = this.waiters.splice(i, 1);
           w.resolve(pkt.slice());
+        } else {
+          this.unclaimed.push(pkt.slice());
+          if (this.unclaimed.length > UNCLAIMED_MAX) this.unclaimed.shift();
         }
       }
     } finally {
@@ -171,6 +177,8 @@ export class GcuDevice {
   }
 
   _wait(match, ms) {
+    const early = this.unclaimed.findIndex(match);
+    if (early >= 0) return Promise.resolve(this.unclaimed.splice(early, 1)[0]);
     return new Promise((resolve, reject) => {
       const w = { match, resolve, reject };
       this.waiters.push(w);
@@ -188,7 +196,11 @@ export class GcuDevice {
   }
 
   _run(fn) {
-    const p = this.queue.then(fn, fn);
+    const job = () => {
+      this.unclaimed = [];
+      return fn();
+    };
+    const p = this.queue.then(job, job);
     this.queue = p.catch(() => {});
     return p;
   }
@@ -209,10 +221,13 @@ export class GcuDevice {
       let p = await first;
       while (p[3] !== 0xFF) {
         if (p[2] > p.length - 4) throw new Error(`settings block ${block}: a chunk says ${p[2]} bytes, the packet holds ${p.length - 4}`);
+        if (p[3] !== chunks.length) throw new Error(`settings block ${block}: chunk ${p[3]} arrived where chunk ${chunks.length} belongs`);
         chunks.push(p.slice(4, 4 + p[2]));
         p = await this._wait((q) => q[0] === readId && q[1] === block, 1500);
       }
       const len = chunks.reduce((n, c) => n + c.length, 0);
+      const want = readId === ID_READ_CONFIG_BLOCK ? BLOCK_SIZES.get(block) : undefined;
+      if (want !== undefined && len !== want) throw new Error(`settings block ${block} came back ${len} bytes long, not ${want}`);
       const out = new Uint8Array(len);
       let o = 0;
       for (const c of chunks) { out.set(c, o); o += c.length; }
@@ -221,6 +236,8 @@ export class GcuDevice {
   }
 
   writeBlock(block, bytes) {
+    const want = BLOCK_SIZES.get(block);
+    if (want !== undefined && bytes.length !== want) return Promise.reject(new Error(`refusing to write settings block ${block}: ${bytes.length} bytes, not ${want}`));
     return this._run(async () => {
       for (let at = 0, part = 0; at < bytes.length; at += BLOCK_CHUNK, part++) {
         const chunk = bytes.subarray(at, at + BLOCK_CHUNK);

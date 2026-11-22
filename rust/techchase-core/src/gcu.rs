@@ -68,6 +68,15 @@ pub enum ProtocolError {
         size: u8,
         room: usize,
     },
+    ChunkOrder {
+        got: u8,
+        want: usize,
+    },
+    BlockSize {
+        block: u8,
+        len: usize,
+        want: usize,
+    },
     TooManyArgs(usize),
     BlockTooLong(usize),
     Refused {
@@ -86,6 +95,12 @@ impl fmt::Display for ProtocolError {
             }
             Self::Chunk { size, room } => {
                 write!(f, "a settings chunk says {size} bytes, the packet holds {room}")
+            }
+            Self::ChunkOrder { got, want } => {
+                write!(f, "settings chunk {got} arrived where chunk {want} belongs")
+            }
+            Self::BlockSize { block, len, want } => {
+                write!(f, "settings block {block} is {len} bytes, not {want}")
             }
             Self::TooManyArgs(n) => write!(f, "{n} argument bytes don't fit in a packet"),
             Self::BlockTooLong(n) => write!(f, "a {n}-byte settings block is too long to send"),
@@ -367,8 +382,17 @@ pub fn map_page_count(packet: &[u8]) -> Result<u8, ProtocolError> { byte(packet,
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Chunk<'a> {
-    Data(&'a [u8]),
+    Data { part: u8, bytes: &'a [u8] },
     End,
+}
+
+#[must_use]
+pub const fn block_size(read_id: u8, block: u8) -> Option<usize> {
+    if read_id == ID_READ_CONFIG_BLOCK && block == crate::analog::CFG_BLOCK {
+        Some(crate::analog::BLOCK_SIZE)
+    } else {
+        None
+    }
 }
 
 pub fn parse_block_chunk(
@@ -382,7 +406,7 @@ pub fn parse_block_chunk(
                 return Ok(Some(Chunk::End));
             }
             data.get(..usize::from(*size))
-                .map(|d| Some(Chunk::Data(d)))
+                .map(|bytes| Some(Chunk::Data { part: *part, bytes }))
                 .ok_or(ProtocolError::Chunk { size: *size, room: data.len() })
         }
         _ => Ok(None),
@@ -590,7 +614,7 @@ mod tests {
         let p = packet(&[ID_READ_STATIC_BLOCK, 0, 3, 0, b'G', b'C', b'U']);
         assert_eq!(
             parse_block_chunk(&p, ID_READ_STATIC_BLOCK, 0),
-            Ok(Some(Chunk::Data(b"GCU")))
+            Ok(Some(Chunk::Data { part: 0, bytes: b"GCU" }))
         );
         assert_eq!(
             parse_block_chunk(&packet(&[3, 0, 0, 0xff]), 3, 0),

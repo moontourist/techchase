@@ -2,7 +2,8 @@ import { GC_CODES, INPUT, codeName } from './gcu-protocol.js';
 import { NOTCHES, fmtMelee, gcAxis, gcTrigger, meleeUnits, nearestNotch, notchError } from './melee.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
-const TRAIL = 45;
+const TRAIL_MS = 600;
+const TRAIL_STEPS = 6;
 const SCOPE_MS = 2500;
 const HOLD_MS = 250;
 const GC_BUTTONS = ['A', 'B', 'X', 'Y', 'Z', 'L', 'R', 'START', 'UP', 'DOWN', 'LEFT', 'RIGHT'];
@@ -30,7 +31,8 @@ function stickView(svg) {
   el('circle', { r: 80, class: 'melee-circle' }, g);
   el('rect', { x: -22.5, y: -22.5, width: 45, height: 45, class: 'deadzone' }, g);
   const notchDots = el('g', { class: 'notch-dots' }, g);
-  const trail = el('polyline', { class: 'trail' }, g);
+  const trailG = el('g', { class: 'trail' }, g);
+  const trail = Array.from({ length: TRAIL_STEPS }, (_, i) => el('polyline', { style: `stroke-opacity:${((i + 1) / TRAIL_STEPS) * 0.8}` }, trailG));
   const pre = el('circle', { r: 5, class: 'pre' }, g);
   const dot = el('circle', { r: 5.5, class: 'dot' }, g);
   return { gate, notchDots, trail, pre, dot };
@@ -108,8 +110,9 @@ export function createLive({ root, entries }) {
     }
     for (const k of ['l', 'r']) {
       const p = gc(rep.game, k);
-      stick[k].trail.push(p);
-      if (stick[k].trail.length > TRAIL) stick[k].trail.shift();
+      const tr = stick[k].trail;
+      tr.push({ ...p, t: now });
+      while (tr.length && now - tr[0].t > TRAIL_MS) tr.shift();
       capture(k, p, now);
     }
     scope.push({ t: now, game: rep.game, pre: rep.pre });
@@ -208,7 +211,16 @@ export function createLive({ root, entries }) {
       const q = gc(latest.pre, k);
       v.dot.setAttribute('cx', p.x); v.dot.setAttribute('cy', p.y);
       v.pre.setAttribute('cx', q.x); v.pre.setAttribute('cy', q.y);
-      v.trail.setAttribute('points', stick[k].trail.map((t) => `${t.x},${t.y}`).join(' '));
+      const tr = stick[k].trail.filter((t) => now - t.t <= TRAIL_MS);
+      v.trail.forEach((line, i) => {
+        const from = now - TRAIL_MS * (1 - i / TRAIL_STEPS);
+        const to = now - TRAIL_MS * (1 - (i + 1) / TRAIL_STEPS);
+        const part = tr.filter((t) => t.t >= from && t.t <= to);
+        const before = tr.findLast((t) => t.t < from);
+        if (before) part.unshift(before);
+        if (i === TRAIL_STEPS - 1) part.push(p);
+        line.setAttribute('points', part.map((t) => `${t.x},${t.y}`).join(' '));
+      });
       const [mx, my] = meleeUnits(p.x, p.y);
       root.querySelector(`#raw${k.toUpperCase()}`).textContent = fmtRaw(p.x, p.y);
       root.querySelector(`#mel${k.toUpperCase()}`).textContent = `(${fmtMelee(mx)}, ${fmtMelee(my)})`;

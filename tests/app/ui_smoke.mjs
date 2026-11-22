@@ -90,7 +90,8 @@ try {
   check(await js(`document.querySelector('[data-labels=smash]').getAttribute('aria-pressed') === 'true'`), 'Smash labels by default');
   check(await js(`[...document.querySelectorAll('#rows li')].some(li => /ZR\\s*Grab/.test(li.textContent))`), 'ZR shows Grab');
   check(await js(`document.querySelector('#pad [data-name=Power]').classList.contains('fixed')`), 'Power drawn as not remappable');
-  check(await js(`document.querySelector('#pad [data-name=LT]').classList.contains('fixed')`), 'analog LT drawn as not remappable');
+  check(await js(`document.querySelector('#pad [data-name=L]').dataset.lights.split(' ').includes('LT')`), 'the L shoulder lights for the analog LT');
+  check(await until(`document.querySelector('#pad .btn.lit')`), 'a pressed button lights up on the drawing');
 
   await js(`document.querySelector('#pad [data-name=ZR]').dispatchEvent(new MouseEvent('click', {bubbles: true}))`);
   check(await until(`!document.querySelector('#picker').hidden`), 'clicking ZR in the picture opens the picker');

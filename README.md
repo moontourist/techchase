@@ -112,6 +112,7 @@ node tests/app/ui_smoke.mjs                        # UI test, headless Chrome (s
 python tests/dolphin_setup_test.py                 # Dolphin check and fix, on a throwaway copy
 node tests/app/calibration_test.mjs                # stick calibration math and settings layout
 node tests/app/melee_test.mjs                      # Melee coordinates against GTS readings
+node tests/app/transport_test.mjs                  # settings blocks read whole when packets arrive in bursts
 cd tests/app && npm install && node protocol_test.mjs   # needs the controller; restores your layout
 node tests/app/live_check.mjs                      # live report from the controller, 2 s
 .venv/bin/python tests/slippi_dolphin_poll.py      # controller in Slippi mode, Dolphin closed

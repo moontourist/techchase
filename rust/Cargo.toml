@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["techchase-core", "techchase-usb", "techchase-cli"]
+members = ["techchase-core", "techchase-usb", "techchase-cli", "techchase-app"]
 
 [workspace.package]
 edition = "2024"

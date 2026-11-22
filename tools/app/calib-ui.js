@@ -2,7 +2,7 @@ import { ID_READ_CONFIG_BLOCK } from './gcu-protocol.js';
 import { NOTCHES } from './melee.js';
 import {
   ANALOG_CMD, CENTER_STILL_COUNTS, CFG_BLOCK_ANALOG, StillDetector, angleOff, checkCapture, notchSlots, nudge,
-  parseAnalog, readSlots, withNewCenters, writeSlots,
+  factoryDefaults, parseAnalog, readSlots, tuningLooksBroken, withNewCenters, writeSlots,
 } from './calibration.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -214,6 +214,41 @@ export function createCalibration({ root, getDev, onChange, toast }) {
     }
   }
 
+  async function reset() {
+    const token = ++run;
+    side = 'l';
+    step = 'center';
+    panel.hidden = false;
+    $('#calibRows').replaceChildren();
+    $('#calibDone').hidden = true;
+    $('#calibBack').hidden = true;
+    try {
+      const dev = getDev();
+      if (!backup) backup = await dev.readBlock(ID_READ_CONFIG_BLOCK, CFG_BLOCK_ANALOG);
+      show('Resetting both sticks', 'Let go of both sticks and leave them still.', 'Their centers are measured again once they settle.');
+      paint(-1);
+      if (!(await waitCenter(token))) return;
+      const before = await dev.readBlock(ID_READ_CONFIG_BLOCK, CFG_BLOCK_ANALOG);
+      await dev.configCommand(CFG_BLOCK_ANALOG, ANALOG_CMD.CALIBRATE_START);
+      await sleep(CENTER_SETTLE_MS);
+      await dev.configCommand(CFG_BLOCK_ANALOG, ANALOG_CMD.CALIBRATE_STOP);
+      const fresh = await dev.readBlock(ID_READ_CONFIG_BLOCK, CFG_BLOCK_ANALOG);
+      current = factoryDefaults(before, fresh);
+      await dev.writeBlock(CFG_BLOCK_ANALOG, current);
+      setPending(true);
+      if (!alive(token)) return;
+      run++;
+      step = 'idle';
+      panel.hidden = true;
+      toast('Both sticks are back to the factory settings. Try them, then Save to controller, or Discard to undo.', 'ok');
+      refreshHint();
+    } catch (e) {
+      if (!alive(token)) return;
+      toast(`Reset stopped: ${e.message || e}`, 'error');
+      await cancel();
+    }
+  }
+
   async function restoreBackup() {
     if (!backup) return;
     await getDev().writeBlock(CFG_BLOCK_ANALOG, backup);
@@ -250,8 +285,10 @@ export function createCalibration({ root, getDev, onChange, toast }) {
     const hint = $('#calibHint');
     hint.textContent = '';
     try {
-      const a = parseAnalog(await getDev().readBlock(ID_READ_CONFIG_BLOCK, CFG_BLOCK_ANALOG));
-      if (!a.calibrationSet) hint.textContent = 'These sticks have never been calibrated: calibrate them (about a minute each).';
+      const block = await getDev().readBlock(ID_READ_CONFIG_BLOCK, CFG_BLOCK_ANALOG);
+      const a = parseAnalog(block);
+      if (tuningLooksBroken(block)) hint.textContent = 'These stick settings look damaged: reset the sticks to factory settings.';
+      else if (!a.calibrationSet) hint.textContent = 'These sticks have never been calibrated: calibrate them (about a minute each), or leave the factory settings.';
     } catch {
       hint.textContent = '';
     }
@@ -259,6 +296,7 @@ export function createCalibration({ root, getDev, onChange, toast }) {
 
   return {
     start,
+    reset,
     cancel,
     refreshHint,
     get pending() { return pending; },

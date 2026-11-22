@@ -1,0 +1,28 @@
+[package]
+name = "techchase-app"
+version = "0.1.0"
+description = "techchase as a desktop app: the setup screens in their own window, talking to the controller through techchase-usb"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "techchase"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+nusb = "0.2.9"
+serde = { version = "1.0.229", features = ["derive"] }
+tauri = { version = "2", features = [] }
+techchase-core = { path = "../techchase-core" }
+techchase-usb = { path = "../techchase-usb" }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[lints]
+workspace = true

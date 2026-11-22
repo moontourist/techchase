@@ -1,3 +1,4 @@
+import './tauri-usb.js';
 import {
   GcuDevice, GC_CODES, SW_CODES, FORMATS, MODE_IDS, LATCH_MODES, LIVE, codeName, remappable, jobs, layoutOf, applyLayout,
   canHoldChanges,
@@ -46,11 +47,16 @@ const calib = createCalibration({ root: $('#tab-live'), getDev: () => state.dev,
 
 function renderCalibButtons() {
   const ok = !!state.dev && holdsChanges();
-  for (const id of ['#calibL', '#calibR']) {
+  for (const id of ['#calibL', '#calibR', '#calibReset']) {
     $(id).disabled = !ok;
     $(id).title = ok ? '' : 'Needs the techchase firmware (protocol 2), which can hold a calibration until you save it.';
   }
 }
+$('#calibReset').addEventListener('click', () => {
+  if (calib.step !== 'idle') return;
+  if (!confirm('Reset both sticks to the factory settings? Notches, deadzones and snapback go back to how the controller shipped, and the centers are measured again (let go of the sticks). It works at once; nothing is saved until you press Save to controller.')) return;
+  calib.reset();
+});
 for (const [id, side] of [['#calibL', 'l'], ['#calibR', 'r']]) {
   $(id).addEventListener('click', () => {
     if (calib.step !== 'idle') return;
@@ -93,6 +99,21 @@ async function guard(fn, what) {
 
 const FILTERS = [{ vendorId: 0x057E, classCode: 0xFF }, { vendorId: 0x2E8A, classCode: 0xFF }];
 
+let padReport = null;
+let padFrame = 0;
+function lightPad(rep) {
+  padReport = rep;
+  if (padFrame) return;
+  padFrame = requestAnimationFrame(() => {
+    padFrame = 0;
+    const down = new Set(state.entries.filter((e) => padReport?.presses?.has(e.code)).map((e) => e.name));
+    for (const g of $$('#pad .btn')) {
+      const names = (g.dataset.lights || g.dataset.name).split(' ');
+      g.classList.toggle('lit', names.some((n) => down.has(n)));
+    }
+  });
+}
+
 async function attach(dev) {
   await dev.open();
   state.dev = dev;
@@ -100,6 +121,7 @@ async function attach(dev) {
   state.info = await dev.info();
   liveView.reset();
   state.unsubLive = dev.onLive((rep) => liveView.push(rep));
+  state.unsubPad = dev.onLive(lightPad);
   await dev.setLiveMode(LIVE.TECHCHASE);
   state.unsaved = !!state.info.unsaved;
   state.savedJobs = null;
@@ -118,7 +140,8 @@ async function connect() {
   let usbDev;
   try {
     usbDev = await navigator.usb.requestDevice({ filters: FILTERS });
-  } catch {
+  } catch (e) {
+    if (window.__TAURI__) toast(e.message, 'error');
     return;
   }
   await guard(() => attach(new GcuDevice(usbDev)), 'Could not connect');
@@ -141,6 +164,9 @@ function detach(msg) {
   stopLive();
   state.unsubLive?.();
   state.unsubLive = null;
+  state.unsubPad?.();
+  state.unsubPad = null;
+  lightPad(null);
   liveView.stop();
   liveView.reset();
   calib.detach();
@@ -241,9 +267,13 @@ async function renderDolphin() {
   const box = $('#dolphin');
   let r;
   try {
-    const res = await fetch('api/dolphin', { cache: 'no-store' });
-    if (!res.ok) throw new Error(String(res.status));
-    r = await res.json();
+    if (window.__TAURI__) {
+      r = await window.__TAURI__.core.invoke('dolphin_check');
+    } else {
+      const res = await fetch('api/dolphin', { cache: 'no-store' });
+      if (!res.ok) throw new Error(String(res.status));
+      r = await res.json();
+    }
   } catch {
     box.replaceChildren(el('p', 'The Dolphin check needs the app started from tools/app/serve.py on this computer.', 'muted'));
     $('#dolphinRefresh').hidden = true;
@@ -267,13 +297,18 @@ async function renderDolphin() {
 async function fixDolphin(inst, p) {
   if (!confirm(`Rewrite port ${p.port}'s buttons, sticks and triggers in ${inst.label} to match the controller in SInput mode? The old file is backed up next to it first.`)) return;
   await guard(async () => {
-    const res = await fetch('api/dolphin/fix', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Techchase': '1' },
-      body: JSON.stringify({ install: inst.id, port: p.port }),
-    });
-    const out = await res.json();
-    if (!res.ok) throw new Error(out.error || res.status);
+    let out;
+    if (window.__TAURI__) {
+      out = await window.__TAURI__.core.invoke('dolphin_fix', { install: inst.id, port: p.port });
+    } else {
+      const res = await fetch('api/dolphin/fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Techchase': '1' },
+        body: JSON.stringify({ install: inst.id, port: p.port }),
+      });
+      out = await res.json();
+      if (!res.ok) throw new Error(out.error || res.status);
+    }
     toast(`Port ${p.port} fixed. The old settings are in ${out.backup.split(/[\\/]/).pop()}.`, 'ok');
     await renderDolphin();
   }, 'Dolphin fix failed');
@@ -388,7 +423,7 @@ function renderControls() {
     const g = $(`#pad .btn[data-name="${CSS.escape(e.name)}"]`);
     if (!g) continue;
     const box = g.getBBox();
-    const up = box.y < 120;
+    const up = box.y < 50;
     const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     t.setAttribute('class', 'job');
     t.setAttribute('x', box.x + box.width / 2);

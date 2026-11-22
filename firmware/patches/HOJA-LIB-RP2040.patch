@@ -1302,10 +1302,10 @@ index 9288855..2187cf7 100644
          {
 diff --git a/src/utilities/latch.c b/src/utilities/latch.c
 new file mode 100644
-index 0000000..6e42c60
+index 0000000..4f0c46a
 --- /dev/null
 +++ b/src/utilities/latch.c
-@@ -0,0 +1,626 @@
+@@ -0,0 +1,654 @@
 +#include "utilities/latch.h"
 +
 +#include <string.h>
@@ -1330,6 +1330,7 @@ index 0000000..6e42c60
 +#define USB_GUARD_MISS_STEP   40u
 +#define USB_READY_CAP_US      900u
 +#define USB_TAKE_SLOW_US      1300u
++#define USB_LEAD_RETRY_US     1000000u
 +
 +#define JB_LOCK_N             8u
 +#define JB_PERIOD_MIN_US      300u
@@ -1516,6 +1517,8 @@ index 0000000..6e42c60
 +static bool     _usb_trig_valid = false;
 +static bool     _usb_trig_busy = false;
 +static bool     _usb_trig_late = false;
++static bool     _usb_lead_blocked = false;
++static uint32_t _usb_lead_blocked_us = 0;
 +
 +void latch_usb_start(void)
 +{
@@ -1532,6 +1535,7 @@ index 0000000..6e42c60
 +    _usb_cur_target_valid = false;
 +    _usb_trig_valid = false;
 +    _usb_trig_busy = false;
++    _usb_lead_blocked = false;
 +    _winmax_reset(&_ready);
 +    _guard_setup(USB_GUARD_INIT_US, USB_GUARD_MIN_US, USB_GUARD_MAX_US, USB_GUARD_MISS_STEP);
 +    _mode = LATCH_MODE_USB_FRAME;
@@ -1677,10 +1681,34 @@ index 0000000..6e42c60
 +    return true;
 +}
 +
++static bool _usb_lead_fits(bool learned)
++{
++    if (_lead_us() < USB_FRAME_US - 50u)
++    {
++        _usb_lead_blocked = false;
++        return true;
++    }
++    if (!learned)
++        return false;
++    const uint32_t now = time_us_32();
++    if (!_usb_lead_blocked)
++    {
++        _usb_lead_blocked = true;
++        _usb_lead_blocked_us = now;
++    }
++    else if ((now - _usb_lead_blocked_us) >= USB_LEAD_RETRY_US)
++    {
++        _usb_lead_blocked = false;
++        _winmax_reset(&_ready);
++    }
++    return false;
++}
++
 +bool latch_usb_active(void)
 +{
-+    const bool active = _enabled && _usb_on && _sof_valid && (_usb_phase_n >= USB_PHASE_LEARN_N) &&
-+                        (_usb_take_interval_us < USB_TAKE_SLOW_US) && (_lead_us() < USB_FRAME_US - 50u);
++    const bool learned = _enabled && _usb_on && _sof_valid && (_usb_phase_n >= USB_PHASE_LEARN_N) &&
++                         (_usb_take_interval_us < USB_TAKE_SLOW_US);
++    const bool active = _usb_lead_fits(learned) && learned;
 +    if (_usb_on)
 +        _mode = active ? LATCH_MODE_USB_LATE : LATCH_MODE_USB_FRAME;
 +    if (!active)
@@ -1933,10 +1961,53 @@ index 0000000..6e42c60
 +    }
 +}
 diff --git a/src/utilities/profiles.c b/src/utilities/profiles.c
-index 5ef9816..8a09e3b 100644
+index 5ef9816..7529bc4 100644
 --- a/src/utilities/profiles.c
 +++ b/src/utilities/profiles.c
-@@ -405,6 +405,21 @@ void profiles_init(void)
+@@ -108,6 +108,8 @@ static uint8_t _profiles_tries = 0; // Failed writes in a row
+ static bool _profiles_upgrade_global = false;
+ static uint8_t _profiles_upgrade_mask = 0;
+ static profiles_request_s _profiles_request;
++static profile_s _profiles_saved;
++static bool _profiles_saved_held = false;
+ 
+ // --- Records ---
+ 
+@@ -141,6 +143,8 @@ static bool _profiles_write(uint8_t profile, const uint8_t *name, uint8_t source
+         if (!stored)
+             return false;
+     }
++    else if (_profiles_saved_held && (profile == _profiles_active))
++        stored = &_profiles_saved;
+ 
+     record_hal_part_s parts[PROFILES_PARTS_LEN];
+     parts[0] = (record_hal_part_s){.data = name, .len = PROFILES_NAME_LEN};
+@@ -196,6 +200,8 @@ static profiles_step_t _profiles_write_next(void)
+         if (!_profiles_write(profile, _profiles_names[profile], _profiles_active))
+             return PROFILES_STEP_FAILED;
+         _profiles_dirty_mask &= (uint8_t)~(1u << profile);
++        if (profile == _profiles_active)
++            _profiles_saved_held = false;
+         return PROFILES_STEP_WROTE;
+     }
+ 
+@@ -257,6 +263,7 @@ static bool _profiles_request_set(profiles_op_t op, uint8_t profile, const uint8
+             if (profile != _profiles_active)
+             {
+                 _profiles_dirty_mask |= (uint8_t)(1u << _profiles_active);
++                _profiles_saved_held = false;
+                 r->apply = true;
+             }
+             break;
+@@ -313,6 +320,7 @@ static bool _profiles_request_apply(void)
+     {
+         // A copy into the active profile is stored from what is now live, under its own name
+         _profiles_dirty_mask |= (uint8_t)(1u << _profiles_active);
++        _profiles_saved_held = false;
+     }
+     return true;
+ }
+@@ -405,10 +413,31 @@ void profiles_init(void)
      _profiles_upgrade_imu();
  }
  
@@ -1958,6 +2029,16 @@ index 5ef9816..8a09e3b 100644
  bool profiles_save(void)
  {
      if (!_profiles_ready)
+         return false;
++    for (uint8_t i = 0; i < PROFILES_SLICES; i++)
++    {
++        const profiles_slice_s *s = &_profiles_slices[i];
++        memcpy((uint8_t *)&_profiles_saved + s->at, s->live, s->len);
++    }
++    _profiles_saved_held = true;
+     _profiles_dirty_mask |= (uint8_t)(1u << _profiles_active);
+     _profiles_global_dirty = true;
+     _profiles_tries = 0;
 diff --git a/src/utilities/settings.c b/src/utilities/settings.c
 index 730d5f4..793c212 100644
 --- a/src/utilities/settings.c

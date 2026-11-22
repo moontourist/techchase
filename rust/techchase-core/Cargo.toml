@@ -1,0 +1,10 @@
+[package]
+name = "techchase-core"
+version = "0.1.0"
+description = "techchase's protocol and parsing, with no USB: the GameCube adapter report and the GC Ultimate's config protocol"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

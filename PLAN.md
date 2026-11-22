@@ -582,9 +582,31 @@ correct and connected at a tournament, and 14d and 14e are the calibration half 
       stick and which button to press next, and flags a point captured off target.
     * It then runs the same check as 14d, with adjustment hints in Phob terms ("press X once to
       move up-right toward 0.7000").
-  * Scope now: write the step script from PhobGCC v0.29's calibration guide and source (13a),
-    with the combos, the order of center and notch points, and what each button does during
-    notch adjustment.
+  * **Step script, 2026-11-21**, from PhobGCC-doc's `Phob_Calibration_Guide_v0.29.md` and the
+    v0.29 tag's `common/stick.h` (GPL-3.0; facts only, no code copied):
+    1. **Safe mode off:** the Phob boots in safe mode. AXY+Start, held about 1 s, turns it off
+       (the controller freezes 2 s; 4 s when it turns back on). Tap B so the sticks go live.
+    2. **Start:** AXY+L calibrates the main stick, AXY+R the c-stick. Calibrating turns
+       auto-initialize off.
+    3. **Measure, 32 presses** (16 centers, 16 rim points, `_noOfCalibrationPoints`): even
+       steps are the center (let go, press A, L or R); odd steps are the rim point the *other*
+       stick points to (hold the stick there, press A, L or R). Rim order: 0°, 90°, 180°, 270°,
+       45°, 135°, 225°, 315°, then the tertiaries 22.5° to 337.5°. All eight cardinals and
+       diagonals are required; a tertiary with no notch is pressed at center and skipped later.
+       Z steps back to the previous center; Start skips to notch adjustment with the old points.
+       It ends by itself after step 31.
+    4. **Notch adjustment, 12 notches** (`_notchAdjOrder`): the four diagonals, then the eight
+       tertiaries, skipping inactive ones. X turns clockwise, Y counterclockwise, continuously
+       while held (rate depends on loop time, not a fixed step); B resets the notch; A, L or R
+       goes on; Z goes back. Passing the last notch saves; the target stick returns to center.
+       There's no cancel.
+  * **What the app can see:** the target point is on the other stick (about 100 units out at the
+    rim, 127 at center). No step number is sent, so the app counts center and rim targets to
+    know the step, and checks each held point against the target it asked for.
+  * Remapping (14m): 0.29 has no free remap, only six jump swaps (XZ, YZ, LX, LY, RX, RY plus
+    Start, each a toggle). **PhobGCC 0.31 added full remapping (B+X+Y)**, replacing the swaps. A
+    Phob on 0.31 can be remapped on the controller; the app can guide it like calibration. The
+    owner's Phob is on 0.29 and needs its USB port repaired to update.
   * Build: once the Rust USB crate reads the adapter (14i), since a browser can't. This is 13c;
     the two are one step.
 * [x] **14f Nord theme.** Move the app and the README from Dracula to Ghostty's Nord theme.
@@ -618,13 +640,51 @@ correct and connected at a tournament, and 14d and 14e are the calibration half 
     is used for lines only.
 
 ### Rust
-* [ ] **14g Spike.** A `techchase-core` crate plus a CLI matching `gcu.py`.
+* [x] **14g Spike.** A `techchase-core` crate plus a CLI matching `gcu.py`.
   * It passes the same checks as `tests/app/protocol_test.mjs` on the real controller.
   * It polls the controller at about 1 kHz with RAW_IO, trying `nusb` first and `rusb` (libusb)
     second.
   * It opens the Lossless adapter and reads port 1.
   * These are the two things a browser can't do, so the spike proves them before anything else is
     built.
+  * **Done so far, 2026-11-21** (`rust/`, a workspace with `techchase-core` and `techchase-cli`,
+    binary `tc`; `nusb` 0.2.9, which turns on RAW_IO for every IN endpoint itself):
+    * [x] Lossless adapter, port 1, Phob plugged in: `tc adapter` reads **1000 reports a second**,
+      none malformed; longest gap 1.14 ms over 5 s, 2.38 ms over 60 s (2 gaps over 2 ms in 60 000).
+      `rusb` wasn't needed.
+    * [x] Every Phob input came through on a 20 s hand test (1000 a second, longest gap 1.66 ms):
+      both sticks to about 100 units out at the rim, analog triggers to 255 with digital L and R
+      at full press, A, B, X, Y, Z and Start. The L trigger rests at 5 to 13.
+    * [x] Core parsing for the adapter report and the GC Ultimate's protocol (INFO, STATS, MAP,
+      REVERT, block chunks, the static block), 15 unit tests.
+    * [x] On the GC Ultimate (build 1795303483): `tc info` and `tc map` match `gcu.py`; `tc live`
+      gets 125 reports a second, none skipped, longest gap 8.5 ms. The maker string isn't in
+      Windows' device list, so `tc` reads it from the device, as `gcu.py` does.
+    * [x] `tc check`: 27 of 29 passed and the layout was restored. The two REVERT checks found a
+      **firmware bug**: an unsaved change sent within about 20 ms of a save was stored with it
+      (probed: 0 ms stored, 20/100/500 ms correct). HHL's profile store writes later
+      (`profiles_task`, every 16 ms) from what is live *then*; techchase's no-save remaps
+      (protocol 2) didn't allow for that. The JS test was too slow to hit it.
+      **Fix, flashed as 1795306334:** `profiles_save` copies the live slices, and
+      the deferred write of the active profile uses that copy. A profile switch or a copy into
+      the active profile still stores what is live, as HHL's design has it. `tc check` now has a
+      check for this: save, then an unsaved change at once, then REVERT.
+    * [x] Flashed 1795306334: `tc check` all 31 passed three times running; `protocol_test.mjs`
+      passed.
+    * [x] **Second firmware bug, found right after:** late-latch stuck off ("learning", lead
+      1033 us, guard 225) for 30 s and more, until a replug. Late-latch takes a ready-time sample
+      only when it fires, and fires only while the lead is under 950 us. One long ready time
+      (likely a save's flash write; the stall filter lets in up to twice the window's max) pushed
+      the lead over, and nothing could bring it back. A save during play would have switched
+      late-latch off silently. **Fix, flashed as 1795306561:** blocked by the lead alone for
+      1 s, the ready-time window is cleared and late-latch tries again. Verified: after each of
+      three `tc check` runs (a dozen saves each) late-latch was active again within 2 s, input age
+      back to 430-540 us; `protocol_test.mjs` passed. Stats call this state "learning", which is
+      wrong; a mode of its own is a follow-up.
+    * The config interface can't show 1 kHz: the firmware sends a live report every 8 ms
+      (`interval_run(timestamp, 8000, ...)` in `webusb.c`), so `tc live` expects about 125 a
+      second. The GC Ultimate's 1 kHz path is Slippi mode, where it is a plain adapter
+      (057e:0337) and `tc adapter` reads it like the Lossless.
 * [ ] **14h Core crate.**
   * Protocol, live report parsing, the Melee math (`tools/app/melee.js` and its tests move over),
     layouts and profiles.

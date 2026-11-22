@@ -76,11 +76,11 @@ function renderCalibButtons() {
   $('#snapBtn').disabled = !state.dev && !state.pad;
   if (state.pad) {
     for (const id of ['#calibL', '#calibR']) { $(id).disabled = false; $(id).title = ''; }
-    $('#calibReset').disabled = true;
-    $('#calibReset').title = 'A Phob resets its own settings: turn safe mode off, hold A+B+Z and press Start. That keeps the stick calibration.';
+    $('#calibReset').hidden = true;
     $('#calibHint').textContent = '';
     return;
   }
+  $('#calibReset').hidden = false;
   const ok = !!state.dev && holdsChanges();
   for (const id of ['#calibL', '#calibR', '#calibReset']) {
     $(id).disabled = !ok;
@@ -302,9 +302,7 @@ function renderConnection() {
   const s = $('#connStatus');
   const btn = $('#connectBtn');
   for (const b of $$('.tabs button')) {
-    const off = !!state.pad && b.dataset.tab !== 'live';
-    b.disabled = off;
-    b.title = off ? 'Needs a GC Ultimate on USB. A Phob changes its settings through button combos, which the Live tab walks you through.' : '';
+    b.hidden = !!state.pad && b.dataset.tab !== 'live';
   }
   if (state.pad) {
     const ports = state.pad.connectedPorts();

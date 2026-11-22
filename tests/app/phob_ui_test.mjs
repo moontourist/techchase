@@ -125,7 +125,8 @@ try {
   await shot('welcome');
   await js(`document.querySelector('#adapterBtn').click()`);
   check(await until(`document.querySelector('#connStatus').textContent === 'Adapter port 1'`), 'Use adapter opens it and picks the controller in port 1');
-  check(await js(`[...document.querySelectorAll('.tabs button')].filter((b) => b.disabled).length === 4`), 'tabs that need a GC Ultimate say so instead of opening');
+  check(await js(`[...document.querySelectorAll('.tabs button')].filter((b) => b.hidden).length === 4 && !document.querySelector('.tabs [data-tab=live]').hidden`), 'with a Phob, only the Live tab shows');
+  check(await until(`document.querySelector('#calibReset').hidden`), 'the GC Ultimate reset button is hidden with a Phob');
 
   await hold({ main: [198, 128] }, 300);
   check(await until(`document.querySelector('#rawL').textContent.includes('70')`), 'the live view shows the stick counted from where it rested at connect');

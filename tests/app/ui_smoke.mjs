@@ -200,6 +200,7 @@ try {
 
   const tuning = (side = 'l') => js(`(async () => (await import('./calibration.js')).readTuning(window.demoDevice.analog, '${side}'))()`);
   const tuneBefore = await js(`Array.from(window.demoDevice.analog).join(',')`);
+  check(await js(`document.querySelector('#legalBtn').hidden`), 'the Tournament check stays hidden over USB (it reads through an adapter)');
   await js(`document.querySelector('#snapBtn').click()`);
   check(await until(`!document.querySelector('#snap').hidden && !document.querySelector('#snapGcu').hidden && document.querySelector('#snapPhob').hidden`), 'Tune snapback opens the GC Ultimate version of the panel');
   check(await until(`!document.querySelector('#snapPreHead').hidden && [...document.querySelectorAll('#snapType button')].some((b) => b.getAttribute('aria-pressed') === 'true')`), 'it shows the before-filter column and the current filter');

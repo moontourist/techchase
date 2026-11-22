@@ -9,6 +9,7 @@ import { createCalibration } from './calib-ui.js';
 import { AdapterPad } from './adapter-source.js';
 import { createPhobCalibration } from './phob-calib.js';
 import { createSnapback } from './snapback-ui.js';
+import { createTourneyCheck } from './legality-ui.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -59,6 +60,7 @@ const snap = createSnapback({
     setTuning: (s, p) => calib.setTuning(s, p),
   },
 });
+const tourney = createTourneyCheck({ root: $('#tab-live'), toast });
 
 const PAD_SETTLED = 12;
 const phob = createPhobCalibration({
@@ -74,6 +76,7 @@ const phob = createPhobCalibration({
 
 function renderCalibButtons() {
   $('#snapBtn').disabled = !state.dev && !state.pad;
+  $('#legalBtn').hidden = !state.pad;
   if (state.pad) {
     for (const id of ['#calibL', '#calibR']) { $(id).disabled = false; $(id).title = ''; }
     $('#calibReset').hidden = true;
@@ -94,11 +97,18 @@ $('#calibReset').addEventListener('click', () => {
 });
 $('#snapBtn').addEventListener('click', () => {
   if (!state.dev && !state.pad) return;
+  tourney.stop();
   snap.start(state.pad ? 'phob' : 'gcu');
+});
+$('#legalBtn').addEventListener('click', () => {
+  if (!state.pad) return;
+  snap.stop();
+  phob.stop();
+  tourney.start();
 });
 for (const [id, side] of [['#calibL', 'l'], ['#calibR', 'r']]) {
   $(id).addEventListener('click', () => {
-    if (state.pad) { phob.start(side === 'l' ? 'main' : 'c'); return; }
+    if (state.pad) { tourney.stop(); phob.start(side === 'l' ? 'main' : 'c'); return; }
     if (calib.step !== 'idle') return;
     calib.start(side);
   });
@@ -203,7 +213,7 @@ async function attachPad() {
   state.pad = pad;
   liveView.reset();
   liveView.setGate('phob');
-  state.unsubPadData = pad.onReading((p, rep) => { liveView.push(rep); phob.feed(p, rep); snap.feedPad(p, rep); });
+  state.unsubPadData = pad.onReading((p, rep) => { liveView.push(rep); phob.feed(p, rep); snap.feedPad(p, rep); tourney.feedPad(p); });
   pad.onPorts(() => { renderPadLine(); renderConnection(); });
   renderConnection();
   renderPadLine();
@@ -220,6 +230,7 @@ async function detachPad(msg) {
   state.unsubPadData = null;
   phob.stop();
   snap.stop();
+  tourney.stop();
   liveView.stop();
   liveView.reset();
   liveView.setGate('gcu');

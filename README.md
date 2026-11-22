@@ -33,6 +33,11 @@ sticks and tells you what to press next.
   measures again.
 - **Live view and notch check.** Both sticks as the game reads them, raw and in Melee coordinates,
   with all eight notches measured, like GTS's controller test without Dolphin.
+- **Tournament check.** About a minute: let go, roll each stick around its edge, press each
+  trigger. techchase checks stick reach (90 to 110 units) and the triggers against the
+  [controller ruleset](https://github.com/CarVac/MeleeConchRuleset) events cite, and gives a
+  pass or fail per rule that you can copy and show a TO. It's a self-check, not a ruling, and it
+  says what it can't measure through an adapter.
 
 ![The snapback tuner: swings past the deadzone from the right, the Phob's settings read back, and the combo to press](assets/phob-snapback.png)
 
@@ -121,6 +126,7 @@ and that's scheduling. The tools are Python.
 | `tools/app/` | The app: `index.html`, `app.js`, `style.css` |
 | `tools/app/phob-track.js`, `phob-calib.js` | The Phob guide: follows the Phob's calibration from what it shows, and says what to do next |
 | `tools/app/snapback.js`, `snapback-ui.js` | The snapback tuner: swing measurement, advice for each controller, and the Phob's settings display |
+| `tools/app/legality.js`, `legality-ui.js` | The tournament check: reach, trigger and notch-angle rules, and the report |
 | `tools/app/adapter-source.js` | GameCube adapter reports into the live view, with Dolphin's origin |
 | `tools/app/live.js` | The live view: sticks, triggers, buttons, notch check, oscilloscope |
 | `tools/app/melee.js` | GameCube and Melee stick math, checked against GTS readings |
@@ -200,6 +206,7 @@ in `CONTRIBUTING.md`: no panics outside tests, no unchecked casts, every lint ex
 Done:
 
 - [x] **Phob calibration guide** and **snapback tuner**, for Phobs on any GameCube adapter.
+- [x] **Tournament check** through the adapter: stick reach and triggers against the ruleset.
 - [x] **Desktop app** (Rust and Tauri) that reads a GameCube adapter at 1 kHz, as a standalone exe.
 - [x] **GC Ultimate firmware**: late-latch over USB, measured in SInput and Slippi modes, and
   Quick Remap on the controller.

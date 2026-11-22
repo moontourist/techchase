@@ -211,6 +211,40 @@ try {
   await hold({ buttons: [] }, 100);
   check(await until(`document.querySelector('#snapPhobSettings').textContent.startsWith('Snapback: left/right 5')`), 'tapping A + X + D-pad up is read back as 5');
   check(await js(`document.querySelector('#snapRows tr').children[1].textContent === '0'`), 'a change clears the table so the next test is fresh');
+
+  await js(`document.querySelector('#snapClose').click()`);
+  check(await js(`!document.querySelector('#legalBtn').hidden`), 'the Tournament check button shows with the adapter');
+  await hold({ main: [128, 128], c: [128, 128], l: 0, r: 0, buttons: [] }, 100);
+  await js(`document.querySelector('#legalBtn').click()`);
+  check(await until(`!document.querySelector('#legal').hidden && document.querySelector('#legalTitle').textContent === 'Main stick reach'`), 'after a moment at rest, the check moves to the main stick');
+  const roll = async (key) => {
+    for (let d = 0; d <= 360; d += 2.5) {
+      const a = (d * Math.PI) / 180;
+      await hold({ [key]: [128 + Math.round(100 * Math.cos(a)), 128 + Math.round(100 * Math.sin(a))] }, 12);
+    }
+    await hold({ [key]: [128, 128] }, 200);
+  };
+  await roll('main');
+  check(await until(`document.querySelector('#legalTitle').textContent === 'C-stick reach'`), 'a full roll and a release finish the main stick');
+  await roll('c');
+  check(await until(`document.querySelector('#legalTitle').textContent === 'L trigger'`), 'then the c-stick');
+  for (let v = 0; v <= 200; v += 10) await hold({ l: v }, 15);
+  await hold({ l: 200, buttons: ['L'] }, 100);
+  await hold({ l: 0, buttons: [] }, 500);
+  check(await until(`document.querySelector('#legalTitle').textContent === 'R trigger'`), 'a slow L press and release finish L');
+  await hold({ r: 45 }, 200);
+  await hold({ r: 0 }, 500);
+  check(await until(`!document.querySelector('#legalReport').hidden`), 'R finishes the check and shows the report');
+  const rows = await js(`[...document.querySelectorAll('#legalRows tr')].map((tr) => [...tr.children].map((td) => td.textContent))`);
+  const row = (name) => rows.find((r) => r[1].startsWith(name)) || [];
+  check(row('Stick reach, main stick')[0] === 'pass' && row('Stick reach, c-stick')[0] === 'pass', 'both sticks pass the reach rule at 100 units');
+  check(row('L trigger press')[0] === 'pass' && row('L trigger press')[2].startsWith('Analog'), 'a slow L press reads as analog');
+  check(row('R trigger press')[0] === 'FAIL' && row('R trigger press')[2].includes('exactly 45'), 'an R press that jumps to 45 fails');
+  check(await js(`document.querySelector('#legalSummary').classList.contains('fail')`), 'the summary says a rule failed');
+  await shot('legal-report');
+  await js(`document.querySelector('#legalCopy').click()`);
+  await js(`document.querySelector('#legalKind button[data-v=other]').click()`);
+  check(await until(`[...document.querySelectorAll('#legalRows tr')].some((tr) => tr.children[1].textContent.startsWith('Stick filters') && tr.children[0].textContent === 'note')`), 'switching to another controller turns the firmware rules into notes');
   check(consoleErrors.length === 0, `no console errors${consoleErrors.length ? `: ${consoleErrors.join(' | ')}` : ''}`);
 } catch (e) {
   check(false, e.message);

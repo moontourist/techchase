@@ -37,6 +37,7 @@
         <li><b>Calibrate</b> either stick, one step at a time. The app shows the Phob's target and where your stick lands in Melee coordinates.</li>
         <li><b>Tune snapback.</b> Flick the stick, see how far it swings past center, and get the exact buttons to press to fix it.</li>
         <li><b>Check notches</b> against Melee's coordinates, the way GTS shows them, with no Dolphin and no config ROM.</li>
+        <li><b>Tournament check.</b> Stick reach and triggers measured against the controller ruleset events cite, in a report you can show a TO.</li>
       </ul>
       <button id="adapterBtn" class="primary">Use adapter</button>
       <p id="adapterBrowser" class="warn" hidden>The Phob tools are in the techchase desktop app. A browser can't open a GameCube adapter.</p>
@@ -69,6 +70,7 @@
       <button id="calibL" class="ghost">Calibrate main stick</button>
       <button id="calibR" class="ghost">Calibrate c-stick</button>
       <button id="snapBtn" class="ghost">Tune snapback</button>
+      <button id="legalBtn" class="ghost" hidden>Tournament check</button>
       <button id="calibReset" class="ghost danger">Reset sticks to factory</button>
     </div>
     <div id="phobCalib" class="calib phob" hidden>
@@ -111,6 +113,28 @@
       <p class="calib-step">3. What to do</p>
       <ul id="snapAdvice" class="snap-advice"></ul>
       <p id="snapAfter" class="muted small"></p>
+    </div>
+    <div id="legal" class="calib legal" hidden>
+      <div class="calib-head">
+        <h3 id="legalTitle"></h3>
+        <div class="snap-tools">
+          <div id="legalKind" class="seg small-seg"><button data-v="phob" aria-pressed="true">PhobGCC</button><button data-v="other" aria-pressed="false">other</button></div>
+          <button id="legalClose" class="ghost small-btn">close</button>
+        </div>
+      </div>
+      <ol id="legalSteps" class="phob-steps"></ol>
+      <div id="legalRun">
+        <p id="legalDo" class="calib-step"></p>
+        <div id="legalBar" class="legal-bar" hidden><div id="legalBarFill"></div></div>
+        <p id="legalProgress" class="muted"></p>
+        <button id="legalSkip" class="ghost small-btn">skip this step</button>
+      </div>
+      <div id="legalReport" hidden>
+        <p id="legalSummary" class="legal-summary"></p>
+        <table class="notches legal-table"><tbody id="legalRows"></tbody></table>
+        <p id="legalSource" class="muted small"></p>
+        <div class="calib-actions"><button id="legalCopy">Copy report</button><button id="legalAgain" class="ghost small-btn">check again</button></div>
+      </div>
     </div>
     <div id="calib" class="calib" hidden>
       <div class="calib-head"><h3 id="calibTitle"></h3><button id="calibCancel" class="ghost small-btn">cancel</button></div>

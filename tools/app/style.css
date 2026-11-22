@@ -353,3 +353,15 @@ svg.stick .notch-dots .off { fill: var(--color-error); }
 .snap-advice li.change, .snap-advice li.read { color: var(--text-primary); }
 .snap-advice li.stuck { color: var(--color-warning); }
 .ok-text { color: var(--color-success); }
+.legal-bar { height: 6px; background: var(--bg-sunken); margin: 6px 0; max-width: 360px; }
+.legal-bar > div { height: 100%; width: 0; background: var(--color-success); }
+.legal-summary { font-weight: 700; }
+.legal-summary.pass, .legal-status.pass { color: var(--color-success); }
+.legal-summary.warn, .legal-status.warn, .legal-summary.skip { color: var(--color-warning); }
+.legal-summary.fail, .legal-status.fail { color: var(--color-error); }
+.legal-status.skip, .legal-status.note { color: var(--text-muted); }
+.legal-table { width: 100%; table-layout: fixed; }
+.legal-table td { vertical-align: top; text-align: left; white-space: normal; }
+.legal-table td:first-child { width: 4.5em; }
+.legal-table td:last-child { width: 40%; }
+.legal-status { font-weight: 700; white-space: nowrap; }

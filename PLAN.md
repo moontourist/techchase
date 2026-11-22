@@ -1030,17 +1030,39 @@ What the ruleset says that applies (read 2026-11-21 from `ruleset.md`; recheck t
     * **Open for the GC Ultimate.** HOJA's low-pass ramps its blend factor up and down a step per
       loop: check it isn't a timer under the rules. The Auto filter's spring model needs the same
       reading.
-* [ ] **17b Measurements.** From what the app already collects, plus a few prompts:
+    * **Phob trigger modes all pass by design** (`phobGCC.h`, the `lConfig`/`rConfig` switch):
+      default, digital only, analog only, trigger plug (analog capped at the offset), digital to a
+      fixed analog value with or without the digital bit, and scaled analog. The offset is clamped
+      to 49 to 227, so the fixed value is never 43 to 48, and scaling multiplies, so it stays
+      linear through 0. Mode 5's lockout of the other trigger's analog is what the ruleset asks
+      for. A mode that sends a fixed value with the digital bit cleared shows on the adapter as an
+      analog jump with nothing in between, which is how the check spots it.
+    * **Phob smoothing is a one-pole low-pass** (`posAx = a * shaped + (1 - a) * old`, a constant
+      weight), which the filter rules allow.
+* [x] **17b Measurements.** From what the app already collects, plus a few prompts:
   * The origin (let go), the reach in each direction, and each notch's angle (the notch check).
   * Each trigger: rest value, a slow press for the analog curve, and the analog value at the
     digital click.
   * The settings the app has read (snapback, smoothing, waveshaping, trigger mode, scaler).
-* [ ] **17c Report.** A **Tournament check** button in the Live tab walks the player through 17b in
+  * Done 2026-11-21 (`legality.js`): rest (half a second still), reach by 5-degree sector until
+    every sector passes 60 units and the stick is let go, and each trigger's rest and press
+    (analog, digital only, or a fixed value). Reach in a direction is the farthest within 7.5
+    degrees of it; the rule fails past 110 anywhere, or under 90 in any of the eight directions
+    (the ruleset's "able to access at least 90", read strictly). Reading settings is left to
+    Phase 18: every Phob setting passes by design except the scaler, and reach measures that.
+* [x] **17c Report.** A **Tournament check** button in the Live tab walks the player through 17b in
   under two minutes, then shows a pass, fail or can't-check line per rule, each naming the rule.
   Copy as text and save as an image, to share.
+  * Done 2026-11-21 (`legality-ui.js`), adapter only: six steps, each skippable, then one line per
+    rule (pass, warn, FAIL, skipped, note) with the rule's wording. A PhobGCC/other switch turns
+    the by-design lines into notes for other controllers. **Copy report** gives text naming the
+    ruleset commit and date. Save as an image is still to do.
 * [ ] **17d GC Ultimate.** The same check over USB, plus the firmware features from 17a.
 * [ ] **17e Tests.** Notch sets just inside and just outside each limit, the ruleset's own examples,
   trigger values at 42, 43, 48 and 49, and a UI test with the fake adapter.
+  * Done for the adapter (`tests/app/legality_test.mjs`, and the flow in `phob_ui_test.mjs`). The
+    notch-angle math (`notchAngleCheck`) is tested inside and outside the diagonal and modder
+    limits, with the deadzone rescue, ready for 17d. GC Ultimate tests come with 17d.
 
 ## Phase 18: Every Phob setting (finishes 13c)
 Calibration and snapback are done. This phase guides the rest the same way: read the value from

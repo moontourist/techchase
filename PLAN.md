@@ -992,6 +992,44 @@ What the ruleset says that applies (read 2026-11-21 from `ruleset.md`; recheck t
   * The GC Ultimate: whether HOJA's low-pass and Auto (spring model) filters meet the filter rules,
     and how techchase's own changes read against them (late-latch changes when the input is read,
     not what it is; Quick Remap is a static button remap).
+  * **Findings, 2026-11-21.** Read `ruleset.md` in full at commit `0ffc24d` (2025-12-09, "Allow
+    start & dpad lockouts"), and checked PhobGCC-SW 0.29 against it.
+    * **Notch angles are compared before and after remapping.** The adapter only shows the after,
+      so the app can't measure the stretch on its own. But the Phob enforces the rule in its
+      firmware: `legalizeNotch` clamps each diagonal to 1.3x stretch and 0.769x compression (the
+      ruleset's 30% and 23.1%), and each modder notch to 1.5x and 0.666x, which is stricter than
+      the ruleset's 100% and 50%. So on PhobGCC 0.29 this rule passes by firmware. The guide can
+      still cross-check it: in the notch step, the angle a notch shows on entry is the measured
+      one and the angle at A is the remapped one, so the app records both during a calibration.
+    * **The GC Ultimate stores both angles.** Each notch slot in the analog block has `inAngle`
+      and `outAngle`, so the check can be exact.
+    * **Reach (90 to 110 units) is measurable** and is the rule a player can actually break: the
+      Phob's analog scaler runs 82 to 125 and multiplies the output (`stickScale` in `stick.h`).
+      At the standard 100 a Phob reaches 100 on the cardinals and about 104 on the diagonals, so
+      a scaler much above 105 likely takes the diagonals past 110. Measure the farthest reach
+      through the adapter; don't assume.
+    * **Exceptions that matter.** Inputs with |X| and |Y| up to 5 may map to the origin. Outside
+      the Melee circle and within 6 units of a cardinal, the smaller axis may map to 0. Outside
+      the circle and inside the deadzone, it may map to plus or minus 7. Phob's cardinal
+      snapping (-1 to 6, standard 6) looks built around these two; confirm what -1 does in 18a.
+      Worn notches inside the deadzone at the rim may be stretched to reach 0.3250, 0.9375.
+    * **Filters.** PhobGCC's smart snapback filter and waveshaping are named as permitted, and a
+      simple low-pass is permitted. Confirm Phob smoothing is a plain low-pass (18a).
+    * **Triggers.** The Phob's trigger offset is clamped to 49 to 227, so a digital press can't
+      give 43 to 48. Still to check: each trigger mode's analog mapping against "linear from 43
+      to 49 through 0, never decreasing".
+    * **Lockouts.** The Phob's tournament toggle (0 to 5) adds Start and D-pad lockouts, which the
+      latest commit allows.
+    * **Configuration modes are exempt** while they display settings, and may not be used during
+      play. The app's guides only run in configuration modes.
+    * **Not for analog sticks.** Most of the ruleset covers digital controllers (boxes): fuzzing,
+      travel time, banned coordinates, SOCD, modifiers. None of it applies to a Phob's or GC
+      Ultimate's sticks, and the report should say so rather than list it.
+    * **Declared, not measured.** Source availability (PhobGCC-SW and techchase are public), and
+      naming the firmware on request.
+    * **Open for the GC Ultimate.** HOJA's low-pass ramps its blend factor up and down a step per
+      loop: check it isn't a timer under the rules. The Auto filter's spring model needs the same
+      reading.
 * [ ] **17b Measurements.** From what the app already collects, plus a few prompts:
   * The origin (let go), the reach in each direction, and each notch's angle (the notch check).
   * Each trigger: rest value, a slow press for the analog curve, and the analog value at the

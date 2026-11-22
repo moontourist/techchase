@@ -382,8 +382,19 @@ Phase 7; nothing here changes how the controller behaves.
 * [ ] **12f CI.** GitHub Actions on every push: apply the patches and build `gcu_1` with the Pico
   SDK, run the latch simulation, the UI smoke test in headless Chrome, and the linters. Tagged
   releases attach the `.uf2`.
-* [ ] **12g Desktop app.** One installable app for the GC Ultimate and the Phob. Decided:
-  Rust, see Phase 14.
+* [ ] **12g Desktop app.** One app for the GC Ultimate and the Phob. Decided: Rust, see Phase 14.
+  No installer (owner, 2026-11-21): players download `techchase.exe` from GitHub Releases and run
+  it. It must stand alone:
+  * Build with the MSVC target (`x86_64-pc-windows-msvc`). The GNU build loads
+    `WebView2Loader.dll` from a separate file, so a lone downloaded exe fails to start; the MSVC
+    build links the loader in.
+  * WebView2 itself ships with Windows 11 and current Windows 10. The README says what to do if
+    it's missing.
+  * Release workflow (`.github/workflows/release.yml`, 2026-11-21): a `v*` tag that matches the
+    version in `tauri.conf.json` runs the Rust tests, builds the exe with MSVC, fails if it needs
+    any DLL that doesn't come with Windows (checked with `dumpbin`), and drafts a release with
+    `techchase.exe` and its SHA-256. The owner checks the draft and publishes it. A manual run
+    builds the same exe as a download on the run, with no release. The `.uf2` joins it with 12f.
 
 ## Phase 13: Phob configurator (replaces the config ROM in Dolphin)
 The owner's PhobGCC (2.0.5 board, firmware 0.29) is set up today by running a config ROM in Dolphin
@@ -762,15 +773,15 @@ correct and connected at a tournament, and 14d and 14e are the calibration half 
   * Left: a full `tc adapter` run on the new crate to confirm the 1000/s rate.
 * [ ] **14j Desktop app.** Tauri 2. The current screens (HTML, CSS, JavaScript) move over as they
   are and call the Rust core instead of WebUSB.
-  * Installers for Windows and Mac.
+  * A single downloadable exe for Windows, no installer (12g). Mac later, as a plain app bundle.
   * One app finds both the GC Ultimate and a Phob on an adapter.
   * **Started 2026-11-21:** `rust/techchase-app` opens `tools/app` in its own window. A small shim
     (`tauri-usb.js`) gives the screens the WebUSB calls they use, backed by `techchase-usb`; the
     Rust side streams each packet to the window and sends hot-plug events, so the screens are
     unchanged. The Dolphin check moved to `techchase-core::dolphin` (its Python tests carried
     over) and the Dolphin tab calls it, so the app needs no local server.
-  * Left: try it on the controller, the Phob on an adapter, the installers, and building with the
-    MSVC toolchain (the GNU linker warns that it couldn't merge two Windows manifests).
+  * Left: release builds with the MSVC toolchain (12g; it also ends the GNU linker's warning about
+    merging two Windows manifests).
 * [ ] **14k Web build.** The core compiled to WebAssembly for the GitHub Pages version, which stays
   for setting up a GC Ultimate from a phone at a venue.
 * [ ] **14l Retire the copies.** Delete the JavaScript protocol module and the Python tools once the
